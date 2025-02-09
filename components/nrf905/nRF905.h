@@ -95,8 +95,8 @@ class nRF905 : public Component,
   void setup() override;
 
   // float get_setup_priority() const override { return setup_priority::HARDWARE; }
-  float get_setup_priority() const override { return setup_priority::AFTER_CONNECTION; }
-
+  //float get_setup_priority() const override { return setup_priority::AFTER_CONNECTION; }
+  float get_setup_priority() const override { return setup_priority::HARDWARE; }
   void dump_config() override;
   void loop() override;
 
