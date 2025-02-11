@@ -328,6 +328,41 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
           }
           break;
 
+        case FAN_NETWORK_JOIN_REQUEST:
+          ESP_LOGD(TAG, "Discovery: PRE! Link successful to unit with ID 0x%02X on network 0x%08X", pResponse->tx_id,
+            this->config_.fan_networkId);      
+          if ((pResponse->rx_type == this->config_.fan_my_device_type) &&
+              (pResponse->rx_id == this->config_.fan_my_device_id) &&
+              (pResponse->tx_type == this->config_.fan_main_unit_type) &&
+              (pResponse->tx_id == this->config_.fan_main_unit_id)) {
+            ESP_LOGD(TAG, "Discovery: Link successful to unit with ID 0x%02X on network 0x%08X", pResponse->tx_id,
+                     this->config_.fan_networkId);
+
+            this->rfComplete();
+
+            (void) memset(this->_txFrame, 0, FAN_FRAMESIZE);  // Clear frame data
+
+            pTxFrame->rx_type = FAN_TYPE_MAIN_UNIT;  // Set type to main unit
+            pTxFrame->rx_id = pResponse->tx_id;      // Set ID to the ID of the main unit
+            pTxFrame->tx_type = this->config_.fan_my_device_type;
+            pTxFrame->tx_id = this->config_.fan_my_device_id;
+            pTxFrame->ttl = FAN_TTL;
+            pTxFrame->command = FAN_FRAME_0B;  // 0x0B acknowledge link successful
+            pTxFrame->parameter_count = 0x00;  // No parameters
+
+            // Send response frame
+            this->startTransmit(this->_txFrame, FAN_TX_RETRIES, [this]() {
+              ESP_LOGW(TAG, "Query Timeout");
+              this->state_ = StateStartDiscovery;
+            });
+
+            this->state_ = StateDiscoveryJoinComplete;
+          } else {
+            ESP_LOGE(TAG, "Discovery: Received unknown link success from ID 0x%02X on network 0x%08X", pResponse->tx_id,
+                     this->config_.fan_networkId);
+          }
+          break;
+
         default:
           ESP_LOGE(TAG, "Discovery: Received unknown frame type 0x%02X from ID 0x%02X", pResponse->command,
                    pResponse->tx_id);
