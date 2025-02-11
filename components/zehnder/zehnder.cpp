@@ -380,12 +380,13 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
 
     case StateDiscoveryJoinComplete:
       ESP_LOGD(TAG, "StateDiscoveryJoinComplete");
+
       switch (pResponse->command) {
-        case FAN_TYPE_QUERY_NETWORK:
-          if ((pResponse->rx_type == this->config_.fan_main_unit_type) &&
-              (pResponse->rx_id == this->config_.fan_main_unit_id) &&
-              (pResponse->tx_type == this->config_.fan_main_unit_type) &&
-              (pResponse->tx_id == this->config_.fan_main_unit_id)) {
+        case 0x15:
+          // if ((pResponse->rx_type == this->config_.fan_main_unit_type) &&
+          //     (pResponse->rx_id == this->config_.fan_main_unit_id) &&
+          //     (pResponse->tx_type == this->config_.fan_main_unit_type) &&
+          //     (pResponse->tx_id == this->config_.fan_main_unit_id)) {
             ESP_LOGD(TAG, "Discovery: received network join success 0x0D");
 
             this->rfComplete();
@@ -394,10 +395,10 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
             this->pref_.save(&this->config_);
 
             this->state_ = StateIdle;
-          } else {
-            ESP_LOGW(TAG, "Unexpected frame join reponse from Type 0x%02X ID 0x%02X", pResponse->tx_type,
-                     pResponse->tx_id);
-          }
+          // } else {
+          //   ESP_LOGW(TAG, "Unexpected frame join reponse from Type 0x%02X ID 0x%02X", pResponse->tx_type,
+          //            pResponse->tx_id);
+          // }
           break;
 
         default:
