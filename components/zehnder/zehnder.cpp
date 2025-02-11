@@ -224,23 +224,23 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
   RfFrame *const pTxFrame = (RfFrame *) this->_txFrame;  // frame helper
   nrf905::Config rfConfig;
 
-  // ESP_LOGI(TAG, "--- ONTVANGEN FRAME ---");
-  // ESP_LOGI(TAG, "Command: 0x%02X", pResponse->command);
-  // ESP_LOGI(TAG, "Van    : Type 0x%02X, ID 0x%02X", pResponse->tx_type, pResponse->tx_id);
-  // ESP_LOGI(TAG, "Naar   : Type 0x%02X, ID 0x%02X", pResponse->rx_type, pResponse->rx_id);
-  // ESP_LOGI(TAG, "TTL    : 0x%02X", pResponse->ttl);
-  // ESP_LOGI(TAG, "Params : %d bytes", pResponse->parameter_count);
+  ESP_LOGI(TAG, "--- ONTVANGEN FRAME ---");
+  ESP_LOGI(TAG, "Command: 0x%02X", pResponse->command);
+  ESP_LOGI(TAG, "Van    : Type 0x%02X, ID 0x%02X", pResponse->tx_type, pResponse->tx_id);
+  ESP_LOGI(TAG, "Naar   : Type 0x%02X, ID 0x%02X", pResponse->rx_type, pResponse->rx_id);
+  ESP_LOGI(TAG, "TTL    : 0x%02X", pResponse->ttl);
+  ESP_LOGI(TAG, "Params : %d bytes", pResponse->parameter_count);
   
-  // // Log payload bytes
-  // if (pResponse->parameter_count > 0) {
-  //   char hex_buffer[100] = {0};
-  //   char *pos = hex_buffer;
-  //   for (int i = 0; i < pResponse->parameter_count && i < 9; i++) {
-  //     pos += sprintf(pos, "%02X ", pResponse->payload.parameters[i]);
-  //   }
-  //   ESP_LOGI(TAG, "Payload: %s", hex_buffer);
-  // }
-  // ESP_LOGI(TAG, "State  : 0x%02X", this->state_);
+  // Log payload bytes
+  if (pResponse->parameter_count > 0) {
+    char hex_buffer[100] = {0};
+    char *pos = hex_buffer;
+    for (int i = 0; i < pResponse->parameter_count && i < 9; i++) {
+      pos += sprintf(pos, "%02X ", pResponse->payload.parameters[i]);
+    }
+    ESP_LOGI(TAG, "Payload: %s", hex_buffer);
+  }
+  ESP_LOGI(TAG, "State  : 0x%02X", this->state_);
   switch (this->state_) {
     case StateDiscoveryWaitForLinkRequest:
       ESP_LOGD(TAG, "DiscoverStateWaitForLinkRequest");
@@ -330,7 +330,13 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
 
         case FAN_NETWORK_JOIN_REQUEST:
           ESP_LOGD(TAG, "Discovery: PRE! Link successful to unit with ID 0x%02X on network 0x%08X", pResponse->tx_id,
-            this->config_.fan_networkId);      
+            this->config_.fan_networkId);
+            
+          ESP_LOGD(TAG, "pResponse->rx_type: 0x%02X", pResponse->rx_type);
+          ESP_LOGD(TAG, "pResponse->rx_id: 0x%02X", pResponse->rx_id);
+          ESP_LOGD(TAG, "pResponse->tx_type: 0x%02X", pResponse->tx_type);
+          ESP_LOGD(TAG, "pResponse->tx_id: 0x%02X", pResponse->tx_id);
+            
           if ((pResponse->rx_type == this->config_.fan_my_device_type) &&
               (pResponse->rx_id == this->config_.fan_my_device_id) &&
               (pResponse->tx_type == this->config_.fan_main_unit_type) &&
