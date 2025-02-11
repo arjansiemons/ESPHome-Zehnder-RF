@@ -170,6 +170,8 @@ void ZehnderRF::loop(void) {
     case StateStartup:
       // Wait until started up
       if (millis() > 15000) {
+//temp
+        this->state_ = StateStartDiscovery;
         // Discovery?
         if ((this->config_.fan_networkId == 0x00000000) || (this->config_.fan_my_device_type == 0) ||
             (this->config_.fan_my_device_id == 0) || (this->config_.fan_main_unit_type == 0) ||
