@@ -331,6 +331,11 @@ void ZehnderRF::loop(void) {
   }
   // === END WORKAROUND ===
 
+  // WORKAROUND: Manually call nRF905 loop() because ESPHome doesn't call it
+  if (this->rf_ != nullptr) {
+    this->rf_->loop();
+  }
+
   // Run RF handler
   this->rfHandler();
 
