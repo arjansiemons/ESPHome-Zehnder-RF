@@ -631,6 +631,16 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
 
   // Handle SETSPEED broadcasts (0x02) - from MAIN_CONTROL to all devices
   // These are broadcasted when physical remote or wired panel changes speed
+
+  // DEBUG: Log what we're checking for SETSPEED broadcasts
+  if (pResponse->command == FAN_FRAME_SETSPEED) {
+    ESP_LOGI(TAG, "DEBUG SETSPEED: command=0x%02X (MATCH), rx_type=0x%02X (need 0x%02X), rx_id=0x%02X (need 0x00)",
+             pResponse->command, pResponse->rx_type, FAN_TYPE_MAIN_UNIT, pResponse->rx_id);
+    ESP_LOGI(TAG, "DEBUG SETSPEED: Condition check: rx_type_match=%s, rx_id_match=%s",
+             (pResponse->rx_type == FAN_TYPE_MAIN_UNIT) ? "YES" : "NO",
+             (pResponse->rx_id == 0x00) ? "YES" : "NO");
+  }
+
   if (pResponse->command == FAN_FRAME_SETSPEED &&
       pResponse->rx_type == FAN_TYPE_MAIN_UNIT && pResponse->rx_id == 0x00) {
     // SETSPEED broadcast format: RX=MAIN_UNIT/0x00 (broadcast), TX=MAIN_CONTROL
@@ -638,6 +648,7 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
     if (pResponse->parameter_count >= 1) {
       uint8_t speed_preset = pResponse->payload.parameters[0];
 
+      ESP_LOGI(TAG, "!!! SETSPEED BROADCAST HANDLER TRIGGERED !!!");
       ESP_LOGI(TAG, "SETSPEED broadcast from MAIN_CONTROL: preset=%d", speed_preset);
 
       // Update fan state if changed
@@ -647,6 +658,8 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
         this->state = (speed_preset > 0);
         this->speed = speed_preset;
         this->publish_state();
+      } else {
+        ESP_LOGI(TAG, "Fan state already matches SETSPEED broadcast (speed=%d)", speed_preset);
       }
     }
     return;  // Don't process broadcasts in state machine
@@ -807,8 +820,14 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
       break;
 
     case StateWaitSetSpeedResponse:
+      ESP_LOGI(TAG, "StateWaitSetSpeedResponse: Processing frame (command=0x%02X, rx_type=0x%02X, rx_id=0x%02X)",
+               pResponse->command, pResponse->rx_type, pResponse->rx_id);
+      ESP_LOGI(TAG, "  Expecting: rx_type=0x%02X, rx_id=0x%02X",
+               this->config_.fan_my_device_type, this->config_.fan_my_device_id);
+
       if ((pResponse->rx_type == this->config_.fan_my_device_type) &&  // If type
           (pResponse->rx_id == this->config_.fan_my_device_id)) {      // and id match, it is for us
+        ESP_LOGI(TAG, "  Frame is addressed to us!");
         switch (pResponse->command) {
           case FAN_TYPE_FAN_SETTINGS:
             ESP_LOGI(TAG, "StateWaitSetSpeedResponse: Received FAN_SETTINGS confirmation");
@@ -825,19 +844,21 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
 
           case FAN_FRAME_SETSPEED_REPLY:
           case FAN_FRAME_SETVOLTAGE_REPLY:
+            ESP_LOGI(TAG, "  Received SETSPEED_REPLY or SETVOLTAGE_REPLY (ignoring for now)");
             // this->rfComplete();
 
             // this->state_ = StateIdle;
             break;
 
           default:
-            ESP_LOGD(TAG, "Received unexpected frame; type 0x%02X from ID 0x%02X", pResponse->command,
+            ESP_LOGI(TAG, "  Received unexpected frame type 0x%02X from ID 0x%02X", pResponse->command,
                      pResponse->tx_id);
             break;
         }
       } else {
-        ESP_LOGD(TAG, "Received frame from unknown device; type 0x%02X from ID 0x%02X type 0x%02X", pResponse->command,
-                 pResponse->tx_id, pResponse->tx_type);
+        ESP_LOGI(TAG, "  Frame NOT addressed to us (rx_type=0x%02X/0x%02X, rx_id=0x%02X/0x%02X) - ignoring",
+                 pResponse->rx_type, this->config_.fan_my_device_type,
+                 pResponse->rx_id, this->config_.fan_my_device_id);
       }
       break;
 
@@ -929,7 +950,8 @@ void ZehnderRF::setSpeed(const uint8_t paramSpeed, const uint8_t paramTimer) {
     }
 
     this->startTransmit(this->_txFrame, FAN_TX_RETRIES, [this]() {
-      ESP_LOGW(TAG, "Set speed timeout");
+      ESP_LOGE(TAG, "!!! SET SPEED TIMEOUT - NO RESPONSE FROM FAN !!!");
+      ESP_LOGE(TAG, "Returning to Idle state after timeout");
       this->state_ = StateIdle;
     });
 
@@ -1037,20 +1059,22 @@ void ZehnderRF::rfHandler(void) {
 
     case RfStateRxWait:
       if ((this->retries_ >= 0) && ((millis() - this->msgSendTime_) > FAN_REPLY_TIMEOUT)) {
-        ESP_LOGD(TAG, "Receive timeout");
+        ESP_LOGI(TAG, "RfStateRxWait: Receive timeout (waited %ums)", millis() - this->msgSendTime_);
 
         if (this->retries_ > 0) {
           --this->retries_;
-          ESP_LOGD(TAG, "No data received, retry again (left: %u)", this->retries_);
+          ESP_LOGI(TAG, "  No response received, retrying... (retries left: %u)", this->retries_);
 
           this->rfState_ = RfStateWaitAirwayFree;
           this->airwayFreeWaitTime_ = millis();
         } else if (this->retries_ == 0) {
           // Oh oh, ran out of options
-
-          ESP_LOGD(TAG, "No messages received, giving up now...");
+          ESP_LOGE(TAG, "  !!! ALL RETRIES EXHAUSTED - CALLING TIMEOUT CALLBACK !!!");
+          ESP_LOGE(TAG, "  No messages received after %d retries, giving up now...", FAN_TX_RETRIES);
           if (this->onReceiveTimeout_ != NULL) {
             this->onReceiveTimeout_();
+          } else {
+            ESP_LOGE(TAG, "  WARNING: No timeout callback registered!");
           }
 
           // Back to idle
