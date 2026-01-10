@@ -102,7 +102,10 @@ void ZehnderRF::control(const fan::FanCall &call) {
 }
 
 void ZehnderRF::setup() {
-  ESP_LOGE(TAG, "!!! SETUP() CALLED !!!");
+  ESP_LOGE(TAG, "========================================");
+  ESP_LOGE(TAG, "!!! ZEHNDER SETUP() CALLED !!!");
+  ESP_LOGE(TAG, "Setup priority: %.1f (nRF905 is at 400)", this->get_setup_priority());
+  ESP_LOGE(TAG, "========================================");
 
   // Clear config
   memset(&this->config_, 0, sizeof(Config));
@@ -113,45 +116,12 @@ void ZehnderRF::setup() {
     ESP_LOGW(TAG, "Config load ok");
   }
 
-  ESP_LOGW(TAG, "Checking nRF905 component...");
+  ESP_LOGI(TAG, "Checking nRF905 component...");
   if (this->rf_ == nullptr) {
-    ESP_LOGE(TAG, "ERROR: nRF905 component is NULL!");
+    ESP_LOGE(TAG, "ERROR: nRF905 component is NULL! Cannot continue setup.");
     return;
   }
-  ESP_LOGW(TAG, "nRF905 component is OK, getting config...");
-
-  // Set nRF905 config
-  nrf905::Config rfConfig;
-  rfConfig = this->rf_->getConfig();
-  ESP_LOGW(TAG, "nRF905 config retrieved");
-
-  rfConfig.band = true;
-  rfConfig.channel = 117;  // BOXSTREAM/BUVA: 868.2 MHz (was 118 for Zehnder 868.4 MHz)
-
-  // // CRC 16
-  rfConfig.crc_enable = true;
-  rfConfig.crc_bits = 16;
-
-  // // TX power 10
-  rfConfig.tx_power = 10;
-
-  // // RX power normal
-  rfConfig.rx_power = nrf905::PowerNormal;
-
-  rfConfig.rx_address = 0xFE75FD9B;  // BOXSTREAM network (was 0x89816EA9 for ZEHNDER_NETWORK_LINK_ID)
-  rfConfig.rx_address_width = 4;
-  rfConfig.rx_payload_width = 16;
-
-  rfConfig.tx_address_width = 4;
-  rfConfig.tx_payload_width = 16;
-
-  rfConfig.xtal_frequency = 16000000;  // defaults for now
-  rfConfig.clkOutFrequency = nrf905::ClkOut500000;
-  rfConfig.clkOutEnable = false;
-
-  // Write config back
-  this->rf_->updateConfig(&rfConfig);
-  this->rf_->writeTxAddress(0xFE75FD9B);  // BOXSTREAM network
+  ESP_LOGI(TAG, "nRF905 component OK");
 
   this->speed_count_ = 4;  // 4 speeds: LOW, MEDIUM, HIGH, MAX (OFF is state=false)
 
@@ -190,7 +160,7 @@ void ZehnderRF::setup() {
 
   // Override nRF905 config with correct BOXSTREAM settings
   // (nRF905::setup() sets wrong defaults for Zehnder network)
-  rfConfig = this->rf_->getConfig();  // Reuse rfConfig from above
+  nrf905::Config rfConfig = this->rf_->getConfig();
   rfConfig.channel = 117;  // 868.2 MHz for BOXSTREAM/BUVA (not 118)
   rfConfig.rx_address = 0xFE75FD9B;  // BOXSTREAM network (not 0x89816EA9)
   rfConfig.crc_enable = true;

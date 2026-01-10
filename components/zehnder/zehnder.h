@@ -84,7 +84,8 @@ class ZehnderRF : public Component, public fan::Fan {
 
   void control(const fan::FanCall &call) override;
 
-  float get_setup_priority() const override { return setup_priority::DATA; }
+  // Setup after nRF905 (which has AFTER_CONNECTION = 400)
+  float get_setup_priority() const override { return setup_priority::AFTER_CONNECTION - 1.0f; }
 
   void setSpeed(const uint8_t speed, const uint8_t timer = 0);
 
