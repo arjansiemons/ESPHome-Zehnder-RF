@@ -123,11 +123,14 @@ void nRF905::loop() {
     frameProcessed = false;  // Reset on state change
   }
 
-  // Check for valid frame (DR + AM flags both set) AND not yet processed
-  if (state == ((1 << NRF905_STATUS_DR) | (1 << NRF905_STATUS_AM)) && !frameProcessed) {
-    addrMatch = false;
+  // PROMISCUOUS MODE: Accept any frame when DR is HIGH (ignore AM flag)
+  // This allows us to sniff ALL RF traffic, not just frames addressed to us
+  if ((state & (1 << NRF905_STATUS_DR)) && !frameProcessed) {
+    bool addressMatch = (state & (1 << NRF905_STATUS_AM)) != 0;
 
-    // Read data
+    ESP_LOGD(TAG, "Frame detected - DR=1, AM=%d (promiscuous mode)", addressMatch ? 1 : 0);
+
+    // Read data regardless of address match
     this->readRxPayload(buffer, NRF905_MAX_FRAMESIZE);
     ESP_LOGV(TAG, "RX Complete: %s", hexArrayToStr(buffer, NRF905_MAX_FRAMESIZE));
 
@@ -136,19 +139,7 @@ void nRF905::loop() {
     }
 
     frameProcessed = true;  // Mark as processed to avoid re-reading same frame
-  } else if (state == (1 << NRF905_STATUS_DR)) {
     addrMatch = false;
-
-    // ESP_LOGD(TAG, "TX Ready; retransmits: %u", this->retransmitCounter);
-    // if (this->retransmitCounter > 0) {
-    //   --this->retransmitCounter;
-    // } else {
-    this->setMode(this->nextMode);
-
-    if (this->onTxReady != NULL) {
-      this->onTxReady();
-    }
-    // }
   } else if (state == (1 << NRF905_STATUS_AM)) {
     addrMatch = true;
     ESP_LOGD(TAG, "Addr match");
