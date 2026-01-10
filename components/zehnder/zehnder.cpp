@@ -628,6 +628,29 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
     }
     // Continue processing in state machine (might be waiting for this response)
   }
+
+  // Handle SETSPEED broadcasts (0x02) - from MAIN_CONTROL to all devices
+  // These are broadcasted when physical remote or wired panel changes speed
+  if (pResponse->command == FAN_FRAME_SETSPEED &&
+      pResponse->rx_type == FAN_TYPE_MAIN_UNIT && pResponse->rx_id == 0x00) {
+    // SETSPEED broadcast format: RX=MAIN_UNIT/0x00 (broadcast), TX=MAIN_CONTROL
+    // Parameters: [speed preset] (0x00=OFF, 0x01=LOW, 0x02=MEDIUM, 0x03=HIGH, 0x04=MAX)
+    if (pResponse->parameter_count >= 1) {
+      uint8_t speed_preset = pResponse->payload.parameters[0];
+
+      ESP_LOGI(TAG, "SETSPEED broadcast from MAIN_CONTROL: preset=%d", speed_preset);
+
+      // Update fan state if changed
+      if (this->speed != speed_preset || this->state != (speed_preset > 0)) {
+        ESP_LOGI(TAG, "Updating fan state from SETSPEED broadcast: speed %d -> %d",
+                 this->speed, speed_preset);
+        this->state = (speed_preset > 0);
+        this->speed = speed_preset;
+        this->publish_state();
+      }
+    }
+    return;  // Don't process broadcasts in state machine
+  }
   // === END GLOBAL FRAME HANDLERS ===
 
   ESP_LOGD(TAG, "Current state: 0x%02X", this->state_);
@@ -788,30 +811,16 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
           (pResponse->rx_id == this->config_.fan_my_device_id)) {      // and id match, it is for us
         switch (pResponse->command) {
           case FAN_TYPE_FAN_SETTINGS:
-            ESP_LOGD(TAG, "Received fan settings; speed: 0x%02X voltage: %i timer: %i",
-                     pResponse->payload.fanSettings.speed, pResponse->payload.fanSettings.voltage,
+            ESP_LOGI(TAG, "StateWaitSetSpeedResponse: Received FAN_SETTINGS confirmation");
+            ESP_LOGD(TAG, "  Speed: 0x%02X, Voltage: %i%%, Timer: %i",
+                     pResponse->payload.fanSettings.speed,
+                     pResponse->payload.fanSettings.voltage,
                      pResponse->payload.fanSettings.timer);
+
+            // Command successful! Cancel retries and return to Idle
             this->rfComplete();
-
-            this->rfComplete();
-
-            (void) memset(this->_txFrame, 0, FAN_FRAMESIZE);  // Clear frame data
-
-            pTxFrame->rx_type = this->config_.fan_main_unit_type;  // Set type to main unit
-            pTxFrame->rx_id = this->config_.fan_main_unit_id;      // Set ID to the ID of the main unit
-            pTxFrame->tx_type = this->config_.fan_my_device_type;
-            pTxFrame->tx_id = this->config_.fan_my_device_id;
-            pTxFrame->ttl = FAN_TTL;
-            pTxFrame->command = FAN_FRAME_SETSPEED_REPLY;  // 0x0B acknowledge link successful
-            pTxFrame->parameter_count = 0x03;              // 3 parameters
-            pTxFrame->payload.parameters[0] = 0x54;
-            pTxFrame->payload.parameters[1] = 0x03;
-            pTxFrame->payload.parameters[2] = 0x20;
-
-            // Send response frame
-            this->startTransmit(this->_txFrame, -1, NULL);
-
-            this->state_ = StateWaitSetSpeedConfirm;
+            this->state_ = StateIdle;
+            ESP_LOGI(TAG, "SetSpeed successful - returning to Idle state");
             break;
 
           case FAN_FRAME_SETSPEED_REPLY:
