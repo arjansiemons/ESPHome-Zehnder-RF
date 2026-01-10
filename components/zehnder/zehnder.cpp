@@ -180,6 +180,12 @@ void ZehnderRF::dump_config(void) {
 }
 
 void ZehnderRF::loop(void) {
+  static bool first_log = true;
+  if (first_log) {
+    ESP_LOGE(TAG, "!!! LOOP() ENTERED FOR FIRST TIME !!!");
+    first_log = false;
+  }
+
   uint8_t deviceId;
   nrf905::Config rfConfig;
 
