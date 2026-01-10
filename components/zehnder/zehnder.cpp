@@ -68,28 +68,37 @@ void ZehnderRF::set_rf(nrf905::nRF905 *const pRf) {
 fan::FanTraits ZehnderRF::get_traits() { return fan::FanTraits(false, true, false, this->speed_count_); }
 
 void ZehnderRF::control(const fan::FanCall &call) {
+  ESP_LOGI(TAG, "=== FAN CONTROL CALLED ===");
+
   if (call.get_state().has_value()) {
     this->state = *call.get_state();
-    ESP_LOGD(TAG, "Control has state: %u", this->state);
+    ESP_LOGI(TAG, "Control state: %s", this->state ? "ON" : "OFF");
   }
+
   if (call.get_speed().has_value()) {
     this->speed = *call.get_speed();
-    ESP_LOGD(TAG, "Control has speed: %u", this->speed);
+    ESP_LOGI(TAG, "Control speed: %d (0x%02X)", this->speed, this->speed);
   }
+
+  ESP_LOGI(TAG, "Speed count configured: %d", this->speed_count_);
+  ESP_LOGI(TAG, "Final speed to send: %d (state=%s)",
+           this->state ? this->speed : 0, this->state ? "ON" : "OFF");
 
   switch (this->state_) {
     case StateIdle:
-      // Set speed
+      // Set speed: if OFF send 0x00, if ON send current speed (1-4)
       this->setSpeed(this->state ? this->speed : 0x00, 0);
 
       this->lastFanQuery_ = millis();  // Update time
       break;
 
     default:
+      ESP_LOGW(TAG, "Fan control called but not in Idle state (state: 0x%02X)", this->state_);
       break;
   }
 
   this->publish_state();
+  ESP_LOGI(TAG, "=== FAN CONTROL COMPLETE ===");
 }
 
 void ZehnderRF::setup() {
@@ -222,6 +231,10 @@ void ZehnderRF::manual_init() {
     ESP_LOGE(TAG, "!!! RX CALLBACK - FRAME RECEIVED !!!");
     this->rfHandleReceived(pData, dataLength);
   });
+
+  // Enable promiscuous mode to receive all broadcasts (STATUS_BROADCAST, etc.)
+  this->rf_->setPromiscuousMode(true);
+  ESP_LOGE(TAG, "Promiscuous mode enabled - will receive broadcasts from all devices");
 
   this->rf_->setMode(nrf905::Receive);
 
