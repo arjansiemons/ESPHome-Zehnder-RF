@@ -65,7 +65,7 @@ class ZehnderRF : public Component, public fan::Fan {
   void setup() override;
 
   // Setup things
-  void set_rf(nrf905::nRF905 *const pRf) { rf_ = pRf; }
+  void set_rf(nrf905::nRF905 *const pRf);
 
   void set_update_interval(const uint32_t interval) { interval_ = interval; }
 
