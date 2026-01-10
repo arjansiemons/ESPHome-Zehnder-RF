@@ -113,6 +113,9 @@ class nRF905 : public Component,
   Mode getMode(void) { return this->_mode; };
   void setMode(const Mode mode);
 
+  void setPromiscuousMode(bool enabled) { this->promiscuous_mode_ = enabled; }
+  bool getPromiscuousMode(void) { return this->promiscuous_mode_; }
+
   Config getConfig(void) { return this->_config; }
   void updateConfig(Config *config, uint8_t *const pStatus = NULL);
 
@@ -159,6 +162,8 @@ class nRF905 : public Component,
   Mode _mode{PowerDown};
 
   Config _config;
+
+  bool promiscuous_mode_{true};  // Default: promiscuous mode enabled for sniffing
 };
 
 }  // namespace nrf905

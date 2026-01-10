@@ -113,27 +113,52 @@ void nRF905::loop() {
     frameProcessed = false;  // Reset on state change
   }
 
-  // PROMISCUOUS MODE: Accept any frame when DR is HIGH (ignore AM flag)
-  // This allows us to sniff ALL RF traffic, not just frames addressed to us
-  if ((state & (1 << NRF905_STATUS_DR)) && !frameProcessed) {
-    bool addressMatch = (state & (1 << NRF905_STATUS_AM)) != 0;
+  // Check for frame: promiscuous mode OR normal address match mode
+  if (this->promiscuous_mode_) {
+    // PROMISCUOUS MODE: Accept any frame when DR is HIGH (ignore AM flag)
+    if ((state & (1 << NRF905_STATUS_DR)) && !frameProcessed) {
+      bool addressMatch = (state & (1 << NRF905_STATUS_AM)) != 0;
 
-    ESP_LOGD(TAG, "Frame detected - DR=1, AM=%d (promiscuous mode)", addressMatch ? 1 : 0);
+      ESP_LOGD(TAG, "Frame detected - DR=1, AM=%d (promiscuous mode)", addressMatch ? 1 : 0);
 
-    // Read data regardless of address match
-    this->readRxPayload(buffer, NRF905_MAX_FRAMESIZE);
-    ESP_LOGV(TAG, "RX Complete: %s", hexArrayToStr(buffer, NRF905_MAX_FRAMESIZE));
+      // Read data regardless of address match
+      this->readRxPayload(buffer, NRF905_MAX_FRAMESIZE);
+      ESP_LOGV(TAG, "RX Complete: %s", hexArrayToStr(buffer, NRF905_MAX_FRAMESIZE));
 
-    if (this->onRxComplete != NULL) {
-      this->onRxComplete(buffer, NRF905_MAX_FRAMESIZE);
+      if (this->onRxComplete != NULL) {
+        this->onRxComplete(buffer, NRF905_MAX_FRAMESIZE);
+      }
+
+      // Clear DR flag by toggling RX mode (Idle -> Receive)
+      this->setMode(Idle);
+      this->setMode(Receive);
+
+      frameProcessed = true;  // Mark as processed to avoid re-reading same frame
+      addrMatch = false;
     }
+  } else {
+    // NORMAL MODE: Only accept frames with address match (DR + AM both HIGH)
+    if (state == ((1 << NRF905_STATUS_DR) | (1 << NRF905_STATUS_AM)) && !frameProcessed) {
+      ESP_LOGD(TAG, "Frame detected - DR=1, AM=1 (address matched)");
 
-    // Clear DR flag by toggling RX mode (Idle -> Receive)
-    this->setMode(Idle);
-    this->setMode(Receive);
+      // Read data
+      this->readRxPayload(buffer, NRF905_MAX_FRAMESIZE);
+      ESP_LOGV(TAG, "RX Complete: %s", hexArrayToStr(buffer, NRF905_MAX_FRAMESIZE));
 
-    frameProcessed = true;  // Mark as processed to avoid re-reading same frame
-    addrMatch = false;
+      if (this->onRxComplete != NULL) {
+        this->onRxComplete(buffer, NRF905_MAX_FRAMESIZE);
+      }
+
+      // Clear DR flag by toggling RX mode (Idle -> Receive)
+      this->setMode(Idle);
+      this->setMode(Receive);
+
+      frameProcessed = true;  // Mark as processed to avoid re-reading same frame
+      addrMatch = false;
+    } else if (state == (1 << NRF905_STATUS_DR)) {
+      // DR without AM - frame not for us, ignore
+      ESP_LOGV(TAG, "Frame ignored - DR=1 but AM=0 (not for us)");
+    }
   } else if (state == (1 << NRF905_STATUS_AM)) {
     addrMatch = true;
     ESP_LOGD(TAG, "Addr match");

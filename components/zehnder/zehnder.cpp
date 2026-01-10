@@ -261,6 +261,10 @@ void ZehnderRF::pair_as_remote() {
     return;
   }
 
+  // Disable promiscuous mode for pairing - need address match
+  ESP_LOGE(TAG, "Disabling promiscuous mode for pairing");
+  this->rf_->setPromiscuousMode(false);
+
   RfFrame *const pFrame = (RfFrame *) this->_txFrame;
 
   // Step 1: Send JOIN_ACK with NETWORK_LINK_ID
@@ -347,7 +351,15 @@ void ZehnderRF::pair_as_remote() {
   ESP_LOGE(TAG, "========================================");
   ESP_LOGE(TAG, "PAIRING SEQUENCE COMPLETE");
   ESP_LOGE(TAG, "Waiting for FRAME_0B (0x0B) confirmation from MAIN_CONTROL...");
+  ESP_LOGE(TAG, "Re-enabling promiscuous mode for sniffing");
   ESP_LOGE(TAG, "========================================");
+
+  // Wait a bit for FRAME_0B response
+  delay(2000);
+
+  // Re-enable promiscuous mode for normal sniffing
+  this->rf_->setPromiscuousMode(true);
+  ESP_LOGE(TAG, "Promiscuous mode re-enabled");
 }
 
 void ZehnderRF::dump_config(void) {
