@@ -113,6 +113,22 @@ void nRF905::loop() {
     frameProcessed = false;  // Reset on state change
   }
 
+  // Check for TX completion (DR goes HIGH when TX is done)
+  if (this->_mode == Transmit && (state & (1 << NRF905_STATUS_DR))) {
+    ESP_LOGD(TAG, "TX Complete - DR=1 in Transmit mode");
+
+    // Switch to next mode (Receive or Idle)
+    this->setMode(this->nextMode);
+
+    // Call TX ready callback
+    if (this->onTxReady != NULL) {
+      this->onTxReady();
+    }
+
+    lastState = state;
+    return;
+  }
+
   // Check for frame: promiscuous mode OR normal address match mode
   if (this->promiscuous_mode_) {
     // PROMISCUOUS MODE: Accept any frame when DR is HIGH (ignore AM flag)
