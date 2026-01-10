@@ -128,8 +128,8 @@ void nRF905::loop() {
       this->onRxComplete(buffer, NRF905_MAX_FRAMESIZE);
     }
 
-    // Clear DR flag by toggling RX mode (Standby -> Receive)
-    this->setMode(Standby);
+    // Clear DR flag by toggling RX mode (Idle -> Receive)
+    this->setMode(Idle);
     this->setMode(Receive);
 
     frameProcessed = true;  // Mark as processed to avoid re-reading same frame
