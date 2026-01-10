@@ -108,16 +108,6 @@ void nRF905::loop() {
   uint8_t fullStatus = this->readStatus();
   uint8_t state = fullStatus & ((1 << NRF905_STATUS_DR) | (1 << NRF905_STATUS_AM));
 
-  // DEBUG: Log every status read when DR pin is HIGH
-  static uint32_t status_log_count = 0;
-  if (++status_log_count % 100 == 0) {  // Log every 100th read to avoid spam
-    ESP_LOGE(TAG, "Status: 0x%02X, DR=%d, AM=%d, state=0x%02X",
-             fullStatus,
-             (fullStatus >> NRF905_STATUS_DR) & 1,
-             (fullStatus >> NRF905_STATUS_AM) & 1,
-             state);
-  }
-
   if (lastState != state) {
     ESP_LOGV(TAG, "State change: 0x%02X -> 0x%02X", lastState, state);
     frameProcessed = false;  // Reset on state change
@@ -137,6 +127,10 @@ void nRF905::loop() {
     if (this->onRxComplete != NULL) {
       this->onRxComplete(buffer, NRF905_MAX_FRAMESIZE);
     }
+
+    // Clear DR flag by toggling RX mode (Standby -> Receive)
+    this->setMode(Standby);
+    this->setMode(Receive);
 
     frameProcessed = true;  // Mark as processed to avoid re-reading same frame
     addrMatch = false;
