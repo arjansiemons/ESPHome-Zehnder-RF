@@ -159,7 +159,10 @@ void nRF905::loop() {
       // DR without AM - frame not for us, ignore
       ESP_LOGV(TAG, "Frame ignored - DR=1 but AM=0 (not for us)");
     }
-  } else if (state == (1 << NRF905_STATUS_AM)) {
+  }
+
+  // Address match and invalid frame handling (both modes)
+  if (state == (1 << NRF905_STATUS_AM)) {
     addrMatch = true;
     ESP_LOGD(TAG, "Addr match");
 
