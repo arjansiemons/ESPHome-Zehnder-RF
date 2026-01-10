@@ -183,6 +183,82 @@ void ZehnderRF::loop(void) {
   uint8_t deviceId;
   nrf905::Config rfConfig;
 
+  // === WORKAROUND: Initialize in loop() because setup() is never called ===
+  if (!this->initialized_) {
+    ESP_LOGE(TAG, "!!! INITIALIZING IN LOOP() - WORKAROUND !!!");
+
+    // Clear config
+    memset(&this->config_, 0, sizeof(Config));
+
+    uint32_t hash = fnv1_hash("zehnderrf");
+    this->pref_ = global_preferences->make_preference<Config>(hash, true);
+    if (this->pref_.load(&this->config_)) {
+      ESP_LOGE(TAG, "Config loaded from preferences");
+    }
+
+    // Check if rf_ is set
+    if (this->rf_ == nullptr) {
+      ESP_LOGE(TAG, "ERROR: nRF905 component is NULL! Cannot initialize.");
+      return;
+    }
+    ESP_LOGE(TAG, "nRF905 component OK");
+
+    // Set nRF905 config
+    rfConfig = this->rf_->getConfig();
+
+    rfConfig.band = true;
+    rfConfig.channel = 117;  // BOXSTREAM/BUVA: 868.2 MHz
+    rfConfig.crc_enable = true;
+    rfConfig.crc_bits = 16;
+    rfConfig.tx_power = 10;
+    rfConfig.rx_power = nrf905::PowerNormal;
+    rfConfig.rx_address = 0xFE75FD9B;  // BOXSTREAM network
+    rfConfig.rx_address_width = 4;
+    rfConfig.rx_payload_width = 16;
+    rfConfig.tx_address_width = 4;
+    rfConfig.tx_payload_width = 16;
+    rfConfig.xtal_frequency = 16000000;
+    rfConfig.clkOutFrequency = nrf905::ClkOut500000;
+    rfConfig.clkOutEnable = false;
+
+    // Write config back
+    this->rf_->updateConfig(&rfConfig);
+    this->rf_->writeTxAddress(0xFE75FD9B);
+
+    this->speed_count_ = 4;
+
+    // Set callbacks
+    this->rf_->setOnTxReady([this](void) {
+      ESP_LOGD(TAG, "Tx Ready");
+      if (this->rfState_ == RfStateTxBusy) {
+        if (this->retries_ >= 0) {
+          this->msgSendTime_ = millis();
+          this->rfState_ = RfStateRxWait;
+        } else {
+          this->rfState_ = RfStateIdle;
+        }
+      }
+    });
+
+    this->rf_->setOnRxComplete([this](const uint8_t *const pData, const uint8_t dataLength) {
+      ESP_LOGV(TAG, "Received frame");
+      this->rfHandleReceived(pData, dataLength);
+    });
+
+    // Start in receive mode for passive sniffing
+    this->rf_->setMode(nrf905::Receive);
+
+    ESP_LOGE(TAG, "========================================");
+    ESP_LOGE(TAG, "nRF905 INITIALIZED - RECEIVE MODE ACTIVE");
+    ESP_LOGE(TAG, "Frequency: 868.2 MHz (Channel 117)");
+    ESP_LOGE(TAG, "Network: 0xFE75FD9B (BOXSTREAM/BUVA)");
+    ESP_LOGE(TAG, "Listening for RF frames...");
+    ESP_LOGE(TAG, "========================================");
+
+    this->initialized_ = true;
+  }
+  // === END WORKAROUND ===
+
   // Run RF handler
   this->rfHandler();
 

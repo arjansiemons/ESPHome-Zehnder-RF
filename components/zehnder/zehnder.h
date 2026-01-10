@@ -138,6 +138,8 @@ class ZehnderRF : public Component, public fan::Fan {
   uint8_t newTimer{0};
   bool newSetting{false};
 
+  bool initialized_{false};  // Workaround: track if we've initialized in loop()
+
   typedef enum {
     RfStateIdle,            // Idle state
     RfStateWaitAirwayFree,  // wait for airway free
