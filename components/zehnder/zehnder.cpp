@@ -225,8 +225,17 @@ void ZehnderRF::manual_init() {
 
   this->rf_->setMode(nrf905::Receive);
 
+  // Set state to Idle so fan control works
+  this->state_ = StateIdle;
+
+  // Initialize fan state to OFF
+  this->state = false;
+  this->speed = 0;
+  this->publish_state();
+
   ESP_LOGE(TAG, "========================================");
-  ESP_LOGE(TAG, "MANUAL INIT COMPLETE - LISTENING!");
+  ESP_LOGE(TAG, "MANUAL INIT COMPLETE - READY FOR CONTROL!");
+  ESP_LOGE(TAG, "State set to Idle - fan control enabled");
   ESP_LOGE(TAG, "========================================");
 
   this->initialized_ = true;
@@ -604,6 +613,67 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
   }
   ESP_LOGI(TAG, "========================================");
   // === END ENHANCED DEBUG LOGGING ===
+
+  // === GLOBAL FRAME HANDLERS (process regardless of state) ===
+  // Handle STATUS_BROADCAST (0x15) - broadcasted by MAIN_CONTROL after every status change
+  if (pResponse->command == FAN_FRAME_STATUS_BROADCAST) {
+    // STATUS_BROADCAST format: [0x10] [voltage %] [timer on/off]
+    // Example: 10 5A 01 = 90% voltage, timer ON
+    if (pResponse->parameter_count >= 3) {
+      uint8_t voltage_percent = pResponse->payload.parameters[1];
+      uint8_t timer_on = pResponse->payload.parameters[2];
+
+      ESP_LOGI(TAG, "STATUS_BROADCAST: Voltage=%d%%, Timer=%s",
+               voltage_percent, timer_on ? "ON" : "OFF");
+
+      // Map voltage to speed preset (approximate)
+      // 0% = OFF, 30% = LOW, 50% = MEDIUM, 90% = HIGH, 100% = MAX
+      uint8_t new_speed = 0;
+      if (voltage_percent == 0) {
+        new_speed = 0;  // OFF
+      } else if (voltage_percent <= 30) {
+        new_speed = 1;  // LOW
+      } else if (voltage_percent <= 50) {
+        new_speed = 2;  // MEDIUM
+      } else if (voltage_percent <= 90) {
+        new_speed = 3;  // HIGH
+      } else {
+        new_speed = 4;  // MAX
+      }
+
+      // Update fan state if changed
+      if (this->speed != new_speed || this->state != (new_speed > 0)) {
+        ESP_LOGI(TAG, "Updating fan state from STATUS_BROADCAST: speed %d -> %d", this->speed, new_speed);
+        this->state = (new_speed > 0);
+        this->speed = new_speed;
+        this->publish_state();
+      }
+    }
+    return;  // Don't process in state machine
+  }
+
+  // Handle FAN_SETTINGS (0x07) - reply from MAIN_UNIT with current settings
+  if (pResponse->command == FAN_TYPE_FAN_SETTINGS) {
+    // FAN_SETTINGS format: [target preset] [current voltage %] [unknown] [timer related]
+    // Example: 04 32 00 04 = Target MAX (4), currently at 50%, ramping up
+    if (pResponse->parameter_count >= 2) {
+      uint8_t target_preset = pResponse->payload.parameters[0];
+      uint8_t current_voltage = pResponse->payload.parameters[1];
+
+      ESP_LOGI(TAG, "FAN_SETTINGS: Target preset=%d, Current voltage=%d%%",
+               target_preset, current_voltage);
+
+      // Update fan state based on target preset (what the fan is moving towards)
+      if (this->speed != target_preset || this->state != (target_preset > 0)) {
+        ESP_LOGI(TAG, "Updating fan state from FAN_SETTINGS: speed %d -> %d", this->speed, target_preset);
+        this->state = (target_preset > 0);
+        this->speed = target_preset;
+        this->publish_state();
+      }
+    }
+    // Continue processing in state machine (might be waiting for this response)
+  }
+  // === END GLOBAL FRAME HANDLERS ===
 
   ESP_LOGD(TAG, "Current state: 0x%02X", this->state_);
   switch (this->state_) {
