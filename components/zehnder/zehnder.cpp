@@ -86,7 +86,7 @@ void ZehnderRF::control(const fan::FanCall &call) {
 }
 
 void ZehnderRF::setup() {
-  ESP_LOGCONFIG(TAG, "ZEHNDER '%s':", this->get_name().c_str());
+  ESP_LOGW(TAG, "=== Zehnder setup() START for '%s' ===", this->get_name().c_str());
 
   // Clear config
   memset(&this->config_, 0, sizeof(Config));
@@ -94,12 +94,20 @@ void ZehnderRF::setup() {
   uint32_t hash = fnv1_hash("zehnderrf");
   this->pref_ = global_preferences->make_preference<Config>(hash, true);
   if (this->pref_.load(&this->config_)) {
-    ESP_LOGD(TAG, "Config load ok");
+    ESP_LOGW(TAG, "Config load ok");
   }
+
+  ESP_LOGW(TAG, "Checking nRF905 component...");
+  if (this->rf_ == nullptr) {
+    ESP_LOGE(TAG, "ERROR: nRF905 component is NULL!");
+    return;
+  }
+  ESP_LOGW(TAG, "nRF905 component is OK, getting config...");
 
   // Set nRF905 config
   nrf905::Config rfConfig;
   rfConfig = this->rf_->getConfig();
+  ESP_LOGW(TAG, "nRF905 config retrieved");
 
   rfConfig.band = true;
   rfConfig.channel = 117;  // BOXSTREAM/BUVA: 868.2 MHz (was 118 for Zehnder 868.4 MHz)
