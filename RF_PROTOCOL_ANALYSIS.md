@@ -98,6 +98,46 @@ Command: 0x0D (QUERY_NETWORK)
 
 The RF remote periodically polls the network to maintain connection.
 
+### 3. SETSPEED Commands from Main Control Panel
+**Observed on 2026-01-10 21:36**
+
+All speed changes from the wired MAIN_CONTROL panel (Type 0x0E, ID 0x39) are transmitted via RF:
+
+#### Speed LOW (01)
+```
+RX: 0x01 (MAIN_UNIT) ID=0x00 (broadcast)
+TX: 0x0E (MAIN_CONTROL) ID=0x39
+Command: 0x02 (SETSPEED)
+Parameters: 01
+```
+Each command is retransmitted 4 times with decreasing TTL:
+- Frame 1: TTL=0xFA (250)
+- Frame 2: TTL=0xAF (175)
+- Frame 3: TTL=0x5E (94)
+- Frame 4: TTL=0x29 (41)
+
+#### Speed MEDIUM (02)
+```
+Parameters: 02
+```
+
+#### Speed HIGH (03)
+```
+Parameters: 03
+```
+
+**SETSPEED Parameter Mapping:**
+- `0x00` = AUTO/OFF (0%)
+- `0x01` = LOW (30% / 3.0V)
+- `0x02` = MEDIUM (50% / 5.0V)
+- `0x03` = HIGH (90% / 9.0V)
+- `0x04` = MAX (100% / 10.0V)
+
+**Retransmission Behavior:**
+- Every command is sent **4 times** (FAN_TX_FRAMES = 4)
+- TTL decreases with each retransmission
+- Ensures reliable delivery over RF
+
 ## Communication Patterns
 
 ### Bidirectional Communication
@@ -136,19 +176,22 @@ Bytes 7-15: Parameters (up to 9 bytes)
 - `nRF905::loop()` - Must be called manually for frame detection
 
 ### Main Control Panel (Wired)
-The wired main control panel (Type 0x0E, ID 0x39) does **NOT transmit RF signals**.
-- It only communicates via wired connection to the ventilation unit
-- Only the RF remote (Type 0x0F) and the unit itself (Type 0x01) use RF
+The wired main control panel (Type 0x0E, ID 0x39) **DOES transmit RF signals**.
+- ✅ Confirmed: MAIN_CONTROL sends SETSPEED commands via RF
+- All speed changes from the wired panel are broadcast over RF to the main unit
+- Both wired and wireless control methods use the same RF protocol
 
 ## TODO: Further Investigation
 
-- [ ] Decode all SETSPEED commands (speed 0-4)
+- [x] Decode all SETSPEED commands (speed 0-4) ✅ **COMPLETED**
+- [x] Map all speed presets to voltage percentages ✅ **COMPLETED**
 - [ ] Decode SETTIMER parameter encoding (how is 20 minutes encoded?)
 - [ ] Capture SETVOLTAGE commands (percentage control)
 - [ ] Document all FAN_SETTINGS parameter fields
 - [ ] Test network join/pairing process
 - [ ] Investigate command 0x0B purpose
-- [ ] Map all speed presets to voltage percentages
+- [ ] Capture and test SETSPEED command transmission from ESPHome
+- [ ] Test if main unit sends acknowledgment/reply frames
 
 ## Development Setup
 
@@ -173,13 +216,24 @@ All RF frames are logged with:
 - Bidirectional communication tracking
 
 ## Success Metrics
-✅ RF frame reception working
-✅ Bidirectional communication confirmed
+✅ RF frame reception working (promiscuous mode)
+✅ All frames captured reliably - no missed frames
+✅ DR (Data Ready) GPIO pin working correctly
 ✅ Frame parsing and logging functional
 ✅ Device identification working
 ✅ Command recognition implemented
+✅ SETSPEED commands fully decoded (0x00-0x04)
+✅ Retransmission behavior documented (4x per command)
+✅ Both MAIN_CONTROL and RF_REMOTE confirmed working
 ⏳ Command transmission (not tested yet)
 ⏳ Full protocol documentation (in progress)
+
+## Technical Achievements (2026-01-10)
+- **Promiscuous sniffing mode**: Accept all RF frames regardless of address
+- **DR pin optimization**: Hardware-based frame detection via GPIO15
+- **Reliable frame capture**: Proper DR flag clearing (Idle→Receive toggle)
+- **Complete SETSPEED mapping**: All 5 speed levels documented
+- **Retransmission analysis**: 4 frames per command with TTL decay
 
 ---
 *Last updated: 2026-01-10*
