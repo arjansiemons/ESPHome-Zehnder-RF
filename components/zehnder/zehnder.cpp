@@ -168,14 +168,15 @@ void ZehnderRF::setup() {
   });
 
   this->rf_->setOnRxComplete([this](const uint8_t *const pData, const uint8_t dataLength) {
-    ESP_LOGV(TAG, "Received frame");
+    ESP_LOGI(TAG, "!!! RX CALLBACK - FRAME RECEIVED !!!");  // Changed to LOGI so we see it
     this->rfHandleReceived(pData, dataLength);
   });
 
   // === AUTOMATIC INITIALIZATION ===
-  ESP_LOGI(TAG, "Initializing nRF905 hardware (GPIO pins)...");
-  this->rf_->setup();  // Initialize GPIO pins
-  ESP_LOGI(TAG, "nRF905 hardware initialized");
+  // NOTE: Do NOT call rf_->setup() - ESPHome calls it automatically!
+  // Calling it twice can cause issues with callbacks and GPIO pins.
+
+  ESP_LOGI(TAG, "Configuring device identity and RF parameters...");
 
   // Configure device identity as RF_REMOTE (type 0x0F) - same as bathroom remote
   this->config_.fan_networkId = 0xFE75FD9B;
@@ -186,6 +187,18 @@ void ZehnderRF::setup() {
 
   ESP_LOGI(TAG, "Device configured as RF_REMOTE (0x0F) with ID 0x%02X", this->config_.fan_my_device_id);
   ESP_LOGI(TAG, "Target: MAIN_UNIT (0x01) with ID 0x%02X", this->config_.fan_main_unit_id);
+
+  // Override nRF905 config with correct BOXSTREAM settings
+  // (nRF905::setup() sets wrong defaults for Zehnder network)
+  nrf905::Config rfConfig = this->rf_->getConfig();
+  rfConfig.channel = 117;  // 868.2 MHz for BOXSTREAM/BUVA (not 118)
+  rfConfig.rx_address = 0xFE75FD9B;  // BOXSTREAM network (not 0x89816EA9)
+  rfConfig.crc_enable = true;
+  rfConfig.crc_bits = 16;
+  rfConfig.tx_power = 10;
+  this->rf_->updateConfig(&rfConfig);
+  this->rf_->writeTxAddress(0xFE75FD9B);
+  ESP_LOGI(TAG, "nRF905 reconfigured for BOXSTREAM network (868.2 MHz, addr 0xFE75FD9B)");
 
   // Enable promiscuous mode to receive all broadcasts (STATUS_BROADCAST, etc.)
   this->rf_->setPromiscuousMode(true);
@@ -460,91 +473,18 @@ void ZehnderRF::dump_config(void) {
 }
 
 void ZehnderRF::loop(void) {
-  uint8_t deviceId;
-  nrf905::Config rfConfig;
+  // Variables for old state machine code (kept for compatibility)
+  uint8_t deviceId = 0;
+  bool newSetting = false;
+  uint8_t newSpeed = 0;
+  uint8_t newTimer = 0;
 
-  // === WORKAROUND: Initialize in loop() because setup() is never called ===
-  if (!this->initialized_) {
-    ESP_LOGE(TAG, "!!! INITIALIZING IN LOOP() - WORKAROUND !!!");
-
-    // Clear config
-    memset(&this->config_, 0, sizeof(Config));
-
-    uint32_t hash = fnv1_hash("zehnderrf");
-    this->pref_ = global_preferences->make_preference<Config>(hash, true);
-    if (this->pref_.load(&this->config_)) {
-      ESP_LOGE(TAG, "Config loaded from preferences");
-    }
-
-    // Check if rf_ is set
-    if (this->rf_ == nullptr) {
-      ESP_LOGE(TAG, "ERROR: nRF905 component is NULL! Cannot initialize.");
-      return;
-    }
-    ESP_LOGE(TAG, "nRF905 component OK");
-
-    // Set nRF905 config
-    rfConfig = this->rf_->getConfig();
-
-    rfConfig.band = true;
-    rfConfig.channel = 117;  // BOXSTREAM/BUVA: 868.2 MHz
-    rfConfig.crc_enable = true;
-    rfConfig.crc_bits = 16;
-    rfConfig.tx_power = 10;
-    rfConfig.rx_power = nrf905::PowerNormal;
-    rfConfig.rx_address = 0xFE75FD9B;  // BOXSTREAM network
-    rfConfig.rx_address_width = 4;
-    rfConfig.rx_payload_width = 16;
-    rfConfig.tx_address_width = 4;
-    rfConfig.tx_payload_width = 16;
-    rfConfig.xtal_frequency = 16000000;
-    rfConfig.clkOutFrequency = nrf905::ClkOut500000;
-    rfConfig.clkOutEnable = false;
-
-    // Write config back
-    this->rf_->updateConfig(&rfConfig);
-    this->rf_->writeTxAddress(0xFE75FD9B);
-
-    this->speed_count_ = 4;  // 4 speeds: LOW, MEDIUM, HIGH, MAX (OFF is state=false)
-
-    // Set callbacks
-    this->rf_->setOnTxReady([this](void) {
-      ESP_LOGD(TAG, "Tx Ready");
-      if (this->rfState_ == RfStateTxBusy) {
-        if (this->retries_ >= 0) {
-          this->msgSendTime_ = millis();
-          this->rfState_ = RfStateRxWait;
-        } else {
-          this->rfState_ = RfStateIdle;
-        }
-      }
-    });
-
-    this->rf_->setOnRxComplete([this](const uint8_t *const pData, const uint8_t dataLength) {
-      ESP_LOGV(TAG, "Received frame");
-      this->rfHandleReceived(pData, dataLength);
-    });
-
-    // Start in receive mode for passive sniffing
-    this->rf_->setMode(nrf905::Receive);
-
-    ESP_LOGE(TAG, "========================================");
-    ESP_LOGE(TAG, "nRF905 INITIALIZED - RECEIVE MODE ACTIVE");
-    ESP_LOGE(TAG, "Frequency: 868.2 MHz (Channel 117)");
-    ESP_LOGE(TAG, "Network: 0xFE75FD9B (BOXSTREAM/BUVA)");
-    ESP_LOGE(TAG, "Listening for RF frames...");
-    ESP_LOGE(TAG, "========================================");
-
-    this->initialized_ = true;
-  }
-  // === END WORKAROUND ===
-
-  // WORKAROUND: Manually call nRF905 loop() because ESPHome doesn't call it
+  // Call nRF905 loop to process RF frames (RX/TX state machine)
   if (this->rf_ != nullptr) {
     this->rf_->loop();
   }
 
-  // Run RF handler
+  // Run our own RF state machine
   this->rfHandler();
 
   switch (this->state_) {
