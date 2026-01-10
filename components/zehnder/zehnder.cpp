@@ -102,7 +102,7 @@ void ZehnderRF::setup() {
   rfConfig = this->rf_->getConfig();
 
   rfConfig.band = true;
-  rfConfig.channel = 118;
+  rfConfig.channel = 117;  // BOXSTREAM/BUVA: 868.2 MHz (was 118 for Zehnder 868.4 MHz)
 
   // // CRC 16
   rfConfig.crc_enable = true;
@@ -114,7 +114,7 @@ void ZehnderRF::setup() {
   // // RX power normal
   rfConfig.rx_power = nrf905::PowerNormal;
 
-  rfConfig.rx_address = 0x89816EA9;  // ZEHNDER_NETWORK_LINK_ID;
+  rfConfig.rx_address = 0xFE75FD9B;  // BOXSTREAM network (was 0x89816EA9 for ZEHNDER_NETWORK_LINK_ID)
   rfConfig.rx_address_width = 4;
   rfConfig.rx_payload_width = 16;
 
@@ -127,7 +127,7 @@ void ZehnderRF::setup() {
 
   // Write config back
   this->rf_->updateConfig(&rfConfig);
-  this->rf_->writeTxAddress(0x89816EA9);
+  this->rf_->writeTxAddress(0xFE75FD9B);  // BOXSTREAM network
 
   this->speed_count_ = 4;
 
@@ -147,6 +147,10 @@ void ZehnderRF::setup() {
     ESP_LOGV(TAG, "Received frame");
     this->rfHandleReceived(pData, dataLength);
   });
+
+  // === DEBUG MODE: Start in receive mode ===
+  this->rf_->setMode(nrf905::Receive);
+  ESP_LOGW(TAG, "nRF905 set to RECEIVE mode for passive sniffing");
 }
 
 void ZehnderRF::dump_config(void) {
@@ -169,25 +173,17 @@ void ZehnderRF::loop(void) {
   switch (this->state_) {
     case StateStartup:
       // Wait until started up
-      if (millis() > 15000) {
-        // Discovery?
-        if ((this->config_.fan_networkId == 0x00000000) || (this->config_.fan_my_device_type == 0) ||
-            (this->config_.fan_my_device_id == 0) || (this->config_.fan_main_unit_type == 0) ||
-            (this->config_.fan_main_unit_id == 0)) {
-          ESP_LOGD(TAG, "Invalid config, start paring");
+      if (millis() > 5000) {
+        // === DEBUG MODE: PASSIVE LISTENING ===
+        ESP_LOGW(TAG, "========================================");
+        ESP_LOGW(TAG, "DEBUG MODE: Passive RF Sniffer Active");
+        ESP_LOGW(TAG, "Listening on 868.2 MHz (Channel 117)");
+        ESP_LOGW(TAG, "Network Address: 0xFE75FD9B");
+        ESP_LOGW(TAG, "All received RF frames will be logged");
+        ESP_LOGW(TAG, "========================================");
 
-          this->state_ = StateStartDiscovery;
-        } else {
-          ESP_LOGD(TAG, "Config data valid, start polling");
-
-          rfConfig = this->rf_->getConfig();
-          rfConfig.rx_address = this->config_.fan_networkId;
-          this->rf_->updateConfig(&rfConfig);
-          this->rf_->writeTxAddress(this->config_.fan_networkId);
-
-          // Start with query
-          this->queryDevice();
-        }
+        // Stay in idle mode, just listen
+        this->state_ = StateIdle;
       }
       break;
 
@@ -199,13 +195,13 @@ void ZehnderRF::loop(void) {
       break;
 
     case StateIdle:
+      // === DEBUG MODE: Just listen, don't query ===
+      // In debug mode we just passively receive, no queries
       if (newSetting == true) {
+        // If user manually requests speed change, we could try it
         this->setSpeed(newSpeed, newTimer);
-      } else {
-        if ((millis() - this->lastFanQuery_) > this->interval_) {
-          this->queryDevice();
-        }
       }
+      // Don't auto-query in debug mode
       break;
 
     case StateWaitSetSpeedConfirm:
@@ -223,6 +219,66 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
   const RfFrame *const pResponse = (RfFrame *) pData;
   RfFrame *const pTxFrame = (RfFrame *) this->_txFrame;  // frame helper
   nrf905::Config rfConfig;
+
+  // === ENHANCED DEBUG LOGGING ===
+  ESP_LOGI(TAG, "========================================");
+  ESP_LOGI(TAG, "RF Frame Received (state: 0x%02X)", this->state_);
+
+  // Device type names
+  const char* rx_type_name = "UNKNOWN";
+  switch(pResponse->rx_type) {
+    case FAN_TYPE_BROADCAST: rx_type_name = "BROADCAST"; break;
+    case FAN_TYPE_MAIN_UNIT: rx_type_name = "MAIN_UNIT"; break;
+    case FAN_TYPE_REMOTE_CONTROL: rx_type_name = "REMOTE"; break;
+    case FAN_TYPE_MAIN_CONTROL: rx_type_name = "MAIN_CONTROL"; break;
+    case FAN_TYPE_RF_REMOTE: rx_type_name = "RF_REMOTE"; break;
+    case FAN_TYPE_CO2_SENSOR: rx_type_name = "CO2_SENSOR"; break;
+  }
+  const char* tx_type_name = "UNKNOWN";
+  switch(pResponse->tx_type) {
+    case FAN_TYPE_BROADCAST: tx_type_name = "BROADCAST"; break;
+    case FAN_TYPE_MAIN_UNIT: tx_type_name = "MAIN_UNIT"; break;
+    case FAN_TYPE_REMOTE_CONTROL: tx_type_name = "REMOTE"; break;
+    case FAN_TYPE_MAIN_CONTROL: tx_type_name = "MAIN_CONTROL"; break;
+    case FAN_TYPE_RF_REMOTE: tx_type_name = "RF_REMOTE"; break;
+    case FAN_TYPE_CO2_SENSOR: tx_type_name = "CO2_SENSOR"; break;
+  }
+
+  ESP_LOGI(TAG, "  RX: 0x%02X (%s) ID=0x%02X", pResponse->rx_type, rx_type_name, pResponse->rx_id);
+  ESP_LOGI(TAG, "  TX: 0x%02X (%s) ID=0x%02X", pResponse->tx_type, tx_type_name, pResponse->tx_id);
+  ESP_LOGI(TAG, "  TTL: 0x%02X | Command: 0x%02X | Param Count: %d",
+           pResponse->ttl, pResponse->command, pResponse->parameter_count);
+
+  // Log command name
+  const char* cmd_name = "UNKNOWN";
+  switch(pResponse->command) {
+    case FAN_FRAME_SETVOLTAGE: cmd_name = "SETVOLTAGE"; break;
+    case FAN_FRAME_SETSPEED: cmd_name = "SETSPEED"; break;
+    case FAN_FRAME_SETTIMER: cmd_name = "SETTIMER"; break;
+    case FAN_NETWORK_JOIN_REQUEST: cmd_name = "JOIN_REQUEST"; break;
+    case FAN_FRAME_SETSPEED_REPLY: cmd_name = "SETSPEED_REPLY"; break;
+    case FAN_NETWORK_JOIN_OPEN: cmd_name = "JOIN_OPEN"; break;
+    case FAN_TYPE_FAN_SETTINGS: cmd_name = "FAN_SETTINGS"; break;
+    case FAN_FRAME_0B: cmd_name = "FRAME_0B"; break;
+    case FAN_NETWORK_JOIN_ACK: cmd_name = "JOIN_ACK"; break;
+    case FAN_TYPE_QUERY_NETWORK: cmd_name = "QUERY_NETWORK"; break;
+    case FAN_TYPE_QUERY_DEVICE: cmd_name = "QUERY_DEVICE"; break;
+    case FAN_FRAME_SETVOLTAGE_REPLY: cmd_name = "SETVOLTAGE_REPLY"; break;
+  }
+  ESP_LOGI(TAG, "  Command Name: %s", cmd_name);
+
+  // Log parameters as hex
+  if(pResponse->parameter_count > 0) {
+    ESP_LOGI(TAG, "  Parameters [%d]: %02X %02X %02X %02X %02X %02X %02X %02X %02X",
+             pResponse->parameter_count,
+             pResponse->payload.parameters[0], pResponse->payload.parameters[1],
+             pResponse->payload.parameters[2], pResponse->payload.parameters[3],
+             pResponse->payload.parameters[4], pResponse->payload.parameters[5],
+             pResponse->payload.parameters[6], pResponse->payload.parameters[7],
+             pResponse->payload.parameters[8]);
+  }
+  ESP_LOGI(TAG, "========================================");
+  // === END ENHANCED DEBUG LOGGING ===
 
   ESP_LOGD(TAG, "Current state: 0x%02X", this->state_);
   switch (this->state_) {

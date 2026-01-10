@@ -7,3 +7,11 @@
 .build
 
 **/__pycache__
+
+# Debug and development files
+debug.md
+.claude/
+
+# Local YAML configs with credentials
+esp32.yaml
+wemos-d1-mini.yaml

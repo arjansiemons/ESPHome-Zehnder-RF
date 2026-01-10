@@ -4,7 +4,7 @@
 #include "esphome/core/component.h"
 #include "esphome/core/hal.h"
 #include "esphome/components/spi/spi.h"
-#include "esphome/components/fan/fan_state.h"
+#include "esphome/components/fan/fan.h"
 #include "esphome/components/nrf905/nRF905.h"
 
 namespace esphome {
@@ -20,7 +20,9 @@ namespace zehnder {
 enum {
   FAN_TYPE_BROADCAST = 0x00,       // Broadcast to all devices
   FAN_TYPE_MAIN_UNIT = 0x01,       // Fans
-  FAN_TYPE_REMOTE_CONTROL = 0x03,  // Remote controls
+  FAN_TYPE_REMOTE_CONTROL = 0x03,  // Remote controls (Zehnder)
+  FAN_TYPE_MAIN_CONTROL = 0x0E,    // Main control panel (Boxstream - wired)
+  FAN_TYPE_RF_REMOTE = 0x0F,       // RF Remote (Boxstream - bathroom remote)
   FAN_TYPE_CO2_SENSOR = 0x18
 };  // CO2 sensors
 

@@ -1,7 +1,7 @@
 import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome import pins
-from esphome.components import fan, spi
+from esphome.components import spi
 from esphome.const import CONF_ID
 
 CONF_AM_PIN = "am_pin"
@@ -14,7 +14,7 @@ CONF_TXEN_PIN = "txen_pin"
 DEPENDENCIES = ["spi"]
 
 nrf905_ns = cg.esphome_ns.namespace("nrf905")
-nRF905Component = nrf905_ns.class_("nRF905", fan.FanState)
+nRF905Component = nrf905_ns.class_("nRF905", cg.Component, spi.SPIDevice)
 
 CONFIG_SCHEMA = (
     cv.Schema(
