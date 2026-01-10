@@ -224,9 +224,6 @@ void ZehnderRF::status_check() {
   ESP_LOGE(TAG, "  State: 0x%02X", this->state_);
   ESP_LOGE(TAG, "  RF State: 0x%02X", this->rfState_);
   ESP_LOGE(TAG, "  nRF905 pointer: %p", this->rf_);
-  if (this->rf_ != nullptr) {
-    ESP_LOGE(TAG, "  nRF905 status: 0x%02X", this->rf_->readStatus());
-  }
   ESP_LOGE(TAG, "========================================");
 
   // Force back to receive mode
