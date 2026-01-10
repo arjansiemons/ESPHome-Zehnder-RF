@@ -190,7 +190,7 @@ void ZehnderRF::setup() {
 
   // Override nRF905 config with correct BOXSTREAM settings
   // (nRF905::setup() sets wrong defaults for Zehnder network)
-  nrf905::Config rfConfig = this->rf_->getConfig();
+  rfConfig = this->rf_->getConfig();  // Reuse rfConfig from above
   rfConfig.channel = 117;  // 868.2 MHz for BOXSTREAM/BUVA (not 118)
   rfConfig.rx_address = 0xFE75FD9B;  // BOXSTREAM network (not 0x89816EA9)
   rfConfig.crc_enable = true;
