@@ -93,6 +93,17 @@ void nRF905::loop() {
   static bool frameProcessed = false;
   uint8_t buffer[NRF905_MAX_FRAMESIZE];
 
+  // OPTIMIZATION: Check DR GPIO pin first (if configured) - much faster than SPI readStatus()
+  if (this->_gpio_pin_dr != NULL) {
+    bool dr_pin_high = this->_gpio_pin_dr->digital_read();
+    if (!dr_pin_high) {
+      // No data ready, skip expensive SPI status read
+      lastState = 0x00;
+      frameProcessed = false;
+      return;
+    }
+  }
+
   uint8_t state = this->readStatus() & ((1 << NRF905_STATUS_DR) | (1 << NRF905_STATUS_AM));
 
   if (lastState != state) {
