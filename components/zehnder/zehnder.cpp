@@ -422,7 +422,7 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
   switch(pResponse->command) {
     case FAN_FRAME_SETVOLTAGE: cmd_name = "SETVOLTAGE"; break;
     case FAN_FRAME_SETSPEED: cmd_name = "SETSPEED"; break;
-    case FAN_FRAME_SETTIMER: cmd_name = "SETTIMER"; break;
+    case FAN_FRAME_SETTIMER_OLD: cmd_name = "SETTIMER_OLD"; break;
     case FAN_NETWORK_JOIN_REQUEST: cmd_name = "JOIN_REQUEST"; break;
     case FAN_FRAME_SETSPEED_REPLY: cmd_name = "SETSPEED_REPLY"; break;
     case FAN_NETWORK_JOIN_OPEN: cmd_name = "JOIN_OPEN"; break;
@@ -431,6 +431,8 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
     case FAN_NETWORK_JOIN_ACK: cmd_name = "JOIN_ACK"; break;
     case FAN_TYPE_QUERY_NETWORK: cmd_name = "QUERY_NETWORK"; break;
     case FAN_TYPE_QUERY_DEVICE: cmd_name = "QUERY_DEVICE"; break;
+    case FAN_FRAME_SETTIMER: cmd_name = "SETTIMER"; break;
+    case FAN_FRAME_STATUS_BROADCAST: cmd_name = "STATUS_BROADCAST"; break;
     case FAN_FRAME_SETVOLTAGE_REPLY: cmd_name = "SETVOLTAGE_REPLY"; break;
   }
   ESP_LOGI(TAG, "  Command Name: %s", cmd_name);

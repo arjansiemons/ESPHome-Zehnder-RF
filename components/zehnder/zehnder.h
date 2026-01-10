@@ -30,7 +30,7 @@ enum {
 enum {
   FAN_FRAME_SETVOLTAGE = 0x01,  // Set speed (voltage / percentage)
   FAN_FRAME_SETSPEED = 0x02,    // Set speed (preset)
-  FAN_FRAME_SETTIMER = 0x03,    // Set speed with timer
+  FAN_FRAME_SETTIMER_OLD = 0x03,    // Set speed with timer (old protocol?)
   FAN_NETWORK_JOIN_REQUEST = 0x04,
   FAN_FRAME_SETSPEED_REPLY = 0x05,
   FAN_NETWORK_JOIN_OPEN = 0x06,
@@ -40,6 +40,8 @@ enum {
   // FAN_NETWORK_JOIN_FINISH = 0x0D,
   FAN_TYPE_QUERY_NETWORK = 0x0D,
   FAN_TYPE_QUERY_DEVICE = 0x10,
+  FAN_FRAME_SETTIMER = 0x14,    // Set timer (pre-configure, RF remote → Main control)
+  FAN_FRAME_STATUS_BROADCAST = 0x15,  // Status broadcast (Main control → All devices)
   FAN_FRAME_SETVOLTAGE_REPLY = 0x1D
 };
 
