@@ -168,6 +168,55 @@ void ZehnderRF::setup() {
   ESP_LOGW(TAG, "nRF905 set to RECEIVE mode for passive sniffing");
 }
 
+void ZehnderRF::manual_init() {
+  ESP_LOGE(TAG, "========================================");
+  ESP_LOGE(TAG, "!!! MANUAL_INIT() CALLED VIA BUTTON !!!");
+  ESP_LOGE(TAG, "========================================");
+
+  if (this->rf_ == nullptr) {
+    ESP_LOGE(TAG, "ERROR: nRF905 component is NULL!");
+    return;
+  }
+  ESP_LOGE(TAG, "nRF905 component OK at %p", this->rf_);
+
+  // Do the initialization
+  nrf905::Config rfConfig;
+  rfConfig = this->rf_->getConfig();
+
+  rfConfig.band = true;
+  rfConfig.channel = 117;
+  rfConfig.crc_enable = true;
+  rfConfig.crc_bits = 16;
+  rfConfig.tx_power = 10;
+  rfConfig.rx_power = nrf905::PowerNormal;
+  rfConfig.rx_address = 0xFE75FD9B;
+  rfConfig.rx_address_width = 4;
+  rfConfig.rx_payload_width = 16;
+  rfConfig.tx_address_width = 4;
+  rfConfig.tx_payload_width = 16;
+  rfConfig.xtal_frequency = 16000000;
+  rfConfig.clkOutFrequency = nrf905::ClkOut500000;
+  rfConfig.clkOutEnable = false;
+
+  this->rf_->updateConfig(&rfConfig);
+  this->rf_->writeTxAddress(0xFE75FD9B);
+
+  this->speed_count_ = 4;
+
+  this->rf_->setOnRxComplete([this](const uint8_t *const pData, const uint8_t dataLength) {
+    ESP_LOGE(TAG, "!!! RX CALLBACK - FRAME RECEIVED !!!");
+    this->rfHandleReceived(pData, dataLength);
+  });
+
+  this->rf_->setMode(nrf905::Receive);
+
+  ESP_LOGE(TAG, "========================================");
+  ESP_LOGE(TAG, "MANUAL INIT COMPLETE - LISTENING!");
+  ESP_LOGE(TAG, "========================================");
+
+  this->initialized_ = true;
+}
+
 void ZehnderRF::dump_config(void) {
   ESP_LOGE(TAG, "!!! dump_config() CALLED !!!");
   ESP_LOGCONFIG(TAG, "Zehnder Fan config:");

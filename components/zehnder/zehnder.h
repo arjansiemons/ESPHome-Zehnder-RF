@@ -71,6 +71,8 @@ class ZehnderRF : public Component, public fan::Fan {
 
   void dump_config() override;
 
+  void manual_init();  // Manual initialization for testing
+
   fan::FanTraits get_traits() override;
   int get_speed_count() { return this->speed_count_; }
 
