@@ -217,6 +217,26 @@ void ZehnderRF::manual_init() {
   this->initialized_ = true;
 }
 
+void ZehnderRF::status_check() {
+  ESP_LOGE(TAG, "========================================");
+  ESP_LOGE(TAG, "STATUS CHECK:");
+  ESP_LOGE(TAG, "  Initialized: %s", this->initialized_ ? "YES" : "NO");
+  ESP_LOGE(TAG, "  State: 0x%02X", this->state_);
+  ESP_LOGE(TAG, "  RF State: 0x%02X", this->rfState_);
+  ESP_LOGE(TAG, "  nRF905 pointer: %p", this->rf_);
+  if (this->rf_ != nullptr) {
+    ESP_LOGE(TAG, "  nRF905 status: 0x%02X", this->rf_->readStatus());
+  }
+  ESP_LOGE(TAG, "========================================");
+
+  // Force back to receive mode
+  if (this->rf_ != nullptr && this->initialized_) {
+    ESP_LOGE(TAG, "Forcing nRF905 back to RECEIVE mode...");
+    this->rf_->setMode(nrf905::Receive);
+    ESP_LOGE(TAG, "Mode set to RECEIVE");
+  }
+}
+
 void ZehnderRF::dump_config(void) {
   ESP_LOGE(TAG, "!!! dump_config() CALLED !!!");
   ESP_LOGCONFIG(TAG, "Zehnder Fan config:");
