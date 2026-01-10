@@ -68,6 +68,7 @@ nrf905:
   ce_pin: GPIO16    # Chip Enable
   pwr_pin: GPIO17   # Power
   txen_pin: GPIO2   # TX Enable
+  dr_pin: GPIO15    # Data Ready (interrupt)
 
 # The FAN controller
 fan:
