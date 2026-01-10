@@ -115,3 +115,15 @@ button:
       then:
         lambda: |-
           zehnder_fan->status_check();
+
+  - platform: template
+    id: ${devicename}_test_send_low
+    name: ${upper_devicename} TEST Send Low
+    on_press:
+      then:
+        lambda: |-
+          ESP_LOGE("TEST", "========================================");
+          ESP_LOGE("TEST", "SENDING SETSPEED COMMAND: LOW (0x01)");
+          ESP_LOGE("TEST", "Device Type: 0x03 (REMOTE_CONTROL)");
+          ESP_LOGE("TEST", "========================================");
+          zehnder_fan->setSpeed(1, 0);

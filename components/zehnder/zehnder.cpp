@@ -208,6 +208,16 @@ void ZehnderRF::manual_init() {
 
   this->speed_count_ = 4;
 
+  // Configure device identity as REMOTE_CONTROL (type 0x03)
+  this->config_.fan_networkId = 0xFE75FD9B;
+  this->config_.fan_my_device_type = FAN_TYPE_REMOTE_CONTROL;  // 0x03
+  this->config_.fan_my_device_id = 0xE7;  // Random ID (avoid 0x39 which is main unit)
+  this->config_.fan_main_unit_type = FAN_TYPE_MAIN_UNIT;  // 0x01
+  this->config_.fan_main_unit_id = 0x39;  // Main unit ID (seen in logs)
+
+  ESP_LOGE(TAG, "Device configured as REMOTE_CONTROL (0x03) with ID 0x%02X", this->config_.fan_my_device_id);
+  ESP_LOGE(TAG, "Target: MAIN_UNIT (0x01) with ID 0x%02X", this->config_.fan_main_unit_id);
+
   this->rf_->setOnRxComplete([this](const uint8_t *const pData, const uint8_t dataLength) {
     ESP_LOGE(TAG, "!!! RX CALLBACK - FRAME RECEIVED !!!");
     this->rfHandleReceived(pData, dataLength);
