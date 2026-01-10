@@ -153,7 +153,7 @@ void ZehnderRF::setup() {
   this->rf_->updateConfig(&rfConfig);
   this->rf_->writeTxAddress(0xFE75FD9B);  // BOXSTREAM network
 
-  this->speed_count_ = 4;
+  this->speed_count_ = 4;  // 4 speeds: LOW, MEDIUM, HIGH, MAX (OFF is state=false)
 
   this->rf_->setOnTxReady([this](void) {
     ESP_LOGD(TAG, "Tx Ready");
@@ -172,9 +172,41 @@ void ZehnderRF::setup() {
     this->rfHandleReceived(pData, dataLength);
   });
 
-  // === DEBUG MODE: Start in receive mode ===
+  // === AUTOMATIC INITIALIZATION ===
+  ESP_LOGI(TAG, "Initializing nRF905 hardware (GPIO pins)...");
+  this->rf_->setup();  // Initialize GPIO pins
+  ESP_LOGI(TAG, "nRF905 hardware initialized");
+
+  // Configure device identity as RF_REMOTE (type 0x0F) - same as bathroom remote
+  this->config_.fan_networkId = 0xFE75FD9B;
+  this->config_.fan_my_device_type = FAN_TYPE_RF_REMOTE;  // 0x0F (like bathroom remote)
+  this->config_.fan_my_device_id = 0xE7;  // Random ID
+  this->config_.fan_main_unit_type = FAN_TYPE_MAIN_UNIT;  // 0x01
+  this->config_.fan_main_unit_id = 0x39;  // Main unit ID from protocol analysis
+
+  ESP_LOGI(TAG, "Device configured as RF_REMOTE (0x0F) with ID 0x%02X", this->config_.fan_my_device_id);
+  ESP_LOGI(TAG, "Target: MAIN_UNIT (0x01) with ID 0x%02X", this->config_.fan_main_unit_id);
+
+  // Enable promiscuous mode to receive all broadcasts (STATUS_BROADCAST, etc.)
+  this->rf_->setPromiscuousMode(true);
+  ESP_LOGI(TAG, "Promiscuous mode enabled - will receive broadcasts from all devices");
+
+  // Start in receive mode
   this->rf_->setMode(nrf905::Receive);
-  ESP_LOGW(TAG, "nRF905 set to RECEIVE mode for passive sniffing");
+  ESP_LOGI(TAG, "nRF905 set to RECEIVE mode");
+
+  // Set state to Idle so fan control works immediately
+  this->state_ = StateIdle;
+
+  // Initialize fan state to OFF and publish to Home Assistant
+  this->state = false;
+  this->speed = 0;
+  this->publish_state();
+
+  ESP_LOGI(TAG, "========================================");
+  ESP_LOGI(TAG, "ZEHNDER FAN READY - Fan control enabled!");
+  ESP_LOGI(TAG, "========================================");
+  this->initialized_ = true;
 }
 
 void ZehnderRF::manual_init() {
@@ -215,7 +247,7 @@ void ZehnderRF::manual_init() {
   this->rf_->updateConfig(&rfConfig);
   this->rf_->writeTxAddress(0xFE75FD9B);
 
-  this->speed_count_ = 4;
+  this->speed_count_ = 4;  // 4 speeds: LOW, MEDIUM, HIGH, MAX (OFF is state=false)
 
   // Configure device identity as RF_REMOTE (type 0x0F) - same as bathroom remote
   this->config_.fan_networkId = 0xFE75FD9B;
@@ -473,7 +505,7 @@ void ZehnderRF::loop(void) {
     this->rf_->updateConfig(&rfConfig);
     this->rf_->writeTxAddress(0xFE75FD9B);
 
-    this->speed_count_ = 4;
+    this->speed_count_ = 4;  // 4 speeds: LOW, MEDIUM, HIGH, MAX (OFF is state=false)
 
     // Set callbacks
     this->rf_->setOnTxReady([this](void) {
