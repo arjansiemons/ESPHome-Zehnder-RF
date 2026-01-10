@@ -281,7 +281,13 @@ void ZehnderRF::pair_as_remote() {
 
   ESP_LOGE(TAG, "Step 1: Sending JOIN_ACK with LINK_ID (0xA55A5AA5)");
   this->startTransmit(this->_txFrame, -1, NULL);
-  delay(100);  // Wait for transmission
+
+  // Wait for TX to complete
+  for (int i = 0; i < 50; i++) {
+    if (this->rfState_ == RfStateIdle) break;
+    delay(10);
+  }
+  delay(200);  // Extra delay between frames
 
   // Step 2: Send JOIN_ACK with Network ID (little endian)
   memset(this->_txFrame, 0, FAN_FRAMESIZE);
@@ -301,7 +307,13 @@ void ZehnderRF::pair_as_remote() {
 
   ESP_LOGE(TAG, "Step 2: Sending JOIN_ACK with Network ID (0xFE75FD9B)");
   this->startTransmit(this->_txFrame, -1, NULL);
-  delay(100);
+
+  // Wait for TX to complete
+  for (int i = 0; i < 50; i++) {
+    if (this->rfState_ == RfStateIdle) break;
+    delay(10);
+  }
+  delay(200);
 
   // Step 3: Send JOIN_REQUEST to MAIN_CONTROL
   memset(this->_txFrame, 0, FAN_FRAMESIZE);
@@ -321,6 +333,12 @@ void ZehnderRF::pair_as_remote() {
 
   ESP_LOGE(TAG, "Step 3: Sending JOIN_REQUEST to MAIN_CONTROL");
   this->startTransmit(this->_txFrame, -1, NULL);
+
+  // Wait for TX to complete
+  for (int i = 0; i < 50; i++) {
+    if (this->rfState_ == RfStateIdle) break;
+    delay(10);
+  }
 
   ESP_LOGE(TAG, "========================================");
   ESP_LOGE(TAG, "PAIRING SEQUENCE COMPLETE");
