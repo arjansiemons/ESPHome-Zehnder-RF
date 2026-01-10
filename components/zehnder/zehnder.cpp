@@ -261,6 +261,11 @@ void ZehnderRF::pair_as_remote() {
     return;
   }
 
+  if (this->config_.fan_my_device_type == 0x00 || this->config_.fan_my_device_id == 0x00) {
+    ESP_LOGE(TAG, "ERROR: Config not initialized! Call 'Manual Init' button first!");
+    return;
+  }
+
   // Disable promiscuous mode for pairing - need address match
   ESP_LOGE(TAG, "Disabling promiscuous mode for pairing");
   this->rf_->setPromiscuousMode(false);
@@ -286,9 +291,10 @@ void ZehnderRF::pair_as_remote() {
   ESP_LOGE(TAG, "Step 1: Sending JOIN_ACK with LINK_ID (0xA55A5AA5)");
   this->startTransmit(this->_txFrame, -1, NULL);
 
-  // Wait for TX to complete - must call rfHandler() to process state machine
+  // Wait for TX to complete - must call both rf_->loop() and rfHandler()
   for (int i = 0; i < 100; i++) {
-    this->rfHandler();
+    this->rf_->loop();      // Process nRF905 state machine (fires OnTxReady callback)
+    this->rfHandler();      // Process Zehnder state machine
     if (this->rfState_ == RfStateIdle) break;
     delay(10);
   }
@@ -313,9 +319,10 @@ void ZehnderRF::pair_as_remote() {
   ESP_LOGE(TAG, "Step 2: Sending JOIN_ACK with Network ID (0xFE75FD9B)");
   this->startTransmit(this->_txFrame, -1, NULL);
 
-  // Wait for TX to complete - must call rfHandler() to process state machine
+  // Wait for TX to complete - must call both rf_->loop() and rfHandler()
   for (int i = 0; i < 100; i++) {
-    this->rfHandler();
+    this->rf_->loop();      // Process nRF905 state machine (fires OnTxReady callback)
+    this->rfHandler();      // Process Zehnder state machine
     if (this->rfState_ == RfStateIdle) break;
     delay(10);
   }
@@ -340,9 +347,10 @@ void ZehnderRF::pair_as_remote() {
   ESP_LOGE(TAG, "Step 3: Sending JOIN_REQUEST to MAIN_CONTROL");
   this->startTransmit(this->_txFrame, -1, NULL);
 
-  // Wait for TX to complete - must call rfHandler() to process state machine
+  // Wait for TX to complete - must call both rf_->loop() and rfHandler()
   for (int i = 0; i < 100; i++) {
-    this->rfHandler();
+    this->rf_->loop();      // Process nRF905 state machine (fires OnTxReady callback)
+    this->rfHandler();      // Process Zehnder state machine
     if (this->rfState_ == RfStateIdle) break;
     delay(10);
   }
@@ -354,11 +362,15 @@ void ZehnderRF::pair_as_remote() {
   ESP_LOGE(TAG, "Re-enabling promiscuous mode for sniffing");
   ESP_LOGE(TAG, "========================================");
 
-  // Wait a bit for FRAME_0B response
-  delay(2000);
-
   // Re-enable promiscuous mode for normal sniffing
   this->rf_->setPromiscuousMode(true);
+
+  // Wait and process any incoming frames (FRAME_0B response)
+  for (int i = 0; i < 200; i++) {
+    this->rf_->loop();      // Process incoming frames
+    delay(10);
+  }
+
   ESP_LOGE(TAG, "Promiscuous mode re-enabled");
 }
 
