@@ -249,6 +249,85 @@ void ZehnderRF::status_check() {
   }
 }
 
+void ZehnderRF::pair_as_remote() {
+  ESP_LOGE(TAG, "========================================");
+  ESP_LOGE(TAG, "PAIRING SEQUENCE START");
+  ESP_LOGE(TAG, "Device Type: 0x%02X (RF_REMOTE)", this->config_.fan_my_device_type);
+  ESP_LOGE(TAG, "Device ID: 0x%02X", this->config_.fan_my_device_id);
+  ESP_LOGE(TAG, "========================================");
+
+  if (this->rf_ == nullptr) {
+    ESP_LOGE(TAG, "ERROR: nRF905 not initialized!");
+    return;
+  }
+
+  RfFrame *const pFrame = (RfFrame *) this->_txFrame;
+
+  // Step 1: Send JOIN_ACK with NETWORK_LINK_ID
+  memset(this->_txFrame, 0, FAN_FRAMESIZE);
+  pFrame->rx_type = 0x04;  // Joining mode indicator
+  pFrame->rx_id = 0x00;
+  pFrame->tx_type = this->config_.fan_my_device_type;  // 0x03 for REMOTE_CONTROL
+  pFrame->tx_id = this->config_.fan_my_device_id;
+  pFrame->ttl = FAN_TTL;
+  pFrame->command = FAN_NETWORK_JOIN_ACK;  // 0x0C
+  pFrame->parameter_count = 4;
+
+  // NETWORK_LINK_ID: 0xA55A5AA5
+  pFrame->payload.parameters[0] = 0xA5;
+  pFrame->payload.parameters[1] = 0x5A;
+  pFrame->payload.parameters[2] = 0x5A;
+  pFrame->payload.parameters[3] = 0xA5;
+
+  ESP_LOGE(TAG, "Step 1: Sending JOIN_ACK with LINK_ID (0xA55A5AA5)");
+  this->startTransmit(this->_txFrame, -1, NULL);
+  delay(100);  // Wait for transmission
+
+  // Step 2: Send JOIN_ACK with Network ID (little endian)
+  memset(this->_txFrame, 0, FAN_FRAMESIZE);
+  pFrame->rx_type = 0x04;
+  pFrame->rx_id = 0x00;
+  pFrame->tx_type = this->config_.fan_my_device_type;
+  pFrame->tx_id = this->config_.fan_my_device_id;
+  pFrame->ttl = FAN_TTL;
+  pFrame->command = FAN_NETWORK_JOIN_ACK;
+  pFrame->parameter_count = 4;
+
+  // Network ID: 0xFE75FD9B in little endian
+  pFrame->payload.parameters[0] = 0x9B;
+  pFrame->payload.parameters[1] = 0xFD;
+  pFrame->payload.parameters[2] = 0x75;
+  pFrame->payload.parameters[3] = 0xFE;
+
+  ESP_LOGE(TAG, "Step 2: Sending JOIN_ACK with Network ID (0xFE75FD9B)");
+  this->startTransmit(this->_txFrame, -1, NULL);
+  delay(100);
+
+  // Step 3: Send JOIN_REQUEST to MAIN_CONTROL
+  memset(this->_txFrame, 0, FAN_FRAMESIZE);
+  pFrame->rx_type = FAN_TYPE_MAIN_CONTROL;  // 0x0E
+  pFrame->rx_id = this->config_.fan_main_unit_id;  // 0x39
+  pFrame->tx_type = this->config_.fan_my_device_type;
+  pFrame->tx_id = this->config_.fan_my_device_id;
+  pFrame->ttl = FAN_TTL;
+  pFrame->command = FAN_NETWORK_JOIN_REQUEST;  // 0x04
+  pFrame->parameter_count = 4;
+
+  // Network ID
+  pFrame->payload.parameters[0] = 0x9B;
+  pFrame->payload.parameters[1] = 0xFD;
+  pFrame->payload.parameters[2] = 0x75;
+  pFrame->payload.parameters[3] = 0xFE;
+
+  ESP_LOGE(TAG, "Step 3: Sending JOIN_REQUEST to MAIN_CONTROL");
+  this->startTransmit(this->_txFrame, -1, NULL);
+
+  ESP_LOGE(TAG, "========================================");
+  ESP_LOGE(TAG, "PAIRING SEQUENCE COMPLETE");
+  ESP_LOGE(TAG, "Waiting for FRAME_0B (0x0B) confirmation from MAIN_CONTROL...");
+  ESP_LOGE(TAG, "========================================");
+}
+
 void ZehnderRF::dump_config(void) {
   ESP_LOGE(TAG, "!!! dump_config() CALLED !!!");
   ESP_LOGCONFIG(TAG, "Zehnder Fan config:");

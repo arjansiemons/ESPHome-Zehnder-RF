@@ -75,6 +75,7 @@ class ZehnderRF : public Component, public fan::Fan {
 
   void manual_init();  // Manual initialization for testing
   void status_check();  // Check current status
+  void pair_as_remote();  // Execute pairing sequence as RF_REMOTE
 
   fan::FanTraits get_traits() override;
   int get_speed_count() { return this->speed_count_; }

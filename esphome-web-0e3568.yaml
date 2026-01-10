@@ -117,6 +117,14 @@ button:
           zehnder_fan->status_check();
 
   - platform: template
+    id: ${devicename}_pair_remote
+    name: ${upper_devicename} Pair as Remote
+    on_press:
+      then:
+        lambda: |-
+          zehnder_fan->pair_as_remote();
+
+  - platform: template
     id: ${devicename}_test_send_low
     name: ${upper_devicename} TEST Send Low
     on_press:

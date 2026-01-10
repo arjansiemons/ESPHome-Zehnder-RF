@@ -165,7 +165,62 @@ Parameters: 03
 - TTL decreases with each retransmission
 - Ensures reliable delivery over RF
 
-### 4. STATUS_BROADCAST (Command 0x15)
+### 4. Network Pairing Sequence (RF_REMOTE)
+**Captured on 2026-01-10 22:16**
+
+Complete pairing sequence when a new RF_REMOTE joins the network:
+
+#### Step 1: Remote Announces Link ID (JOIN_ACK 0x0C)
+```
+RX: 0x04 (Not a device type - signals JOIN_REQUEST mode!)
+TX: 0x0F (RF_REMOTE) ID=0xD7
+Command: 0x0C (JOIN_ACK)
+
+Frame 1 Parameters: A5 5A 5A A5  → NETWORK_LINK_ID (0xA55A5AA5)
+Frame 2 Parameters: 9B FD 75 FE  → Network ID (0xFE75FD9B in little endian!)
+Frame 3 Parameters: 9B FD 75 FE  → Network ID (repeated)
+```
+
+**JOIN_ACK Format:**
+- First frame: Link ID `0xA55A5AA5` (4 bytes, already defined in zehnder.h)
+- Following frames: Network ID `0xFE75FD9B` in **little endian** byte order
+- RX type `0x04` indicates "joining mode", not a device type
+
+#### Step 2: Remote Requests to Join (JOIN_REQUEST 0x04)
+```
+RX: 0x0E (MAIN_CONTROL) ID=0x39
+TX: 0x0F (RF_REMOTE) ID=0xD7
+Command: 0x04 (JOIN_REQUEST)
+Parameters: 9B FD 75 FE  → Network ID (little endian)
+```
+
+**JOIN_REQUEST Format:**
+- Sent to MAIN_CONTROL (not MAIN_UNIT!)
+- Contains network ID to join (0xFE75FD9B)
+- Remote has already chosen its device ID (0xD7)
+
+#### Step 3: Main Control Confirms Pairing (FRAME_0B)
+```
+RX: 0x0F (RF_REMOTE) ID=0xD7
+TX: 0x0E (MAIN_CONTROL) ID=0x39
+Command: 0x0B (FRAME_0B)
+No parameters
+```
+
+**Pairing Handshake:**
+- MAIN_CONTROL sends FRAME_0B to confirm pairing
+- **Retransmitted 4 times** (TTL: 0xFA → 0xB4 → 0x75 → 0x2E)
+- After this, the remote is fully paired and can send commands
+
+#### Step 4: Status Update After Pairing
+```
+Command: 0x15 (STATUS_BROADCAST)
+Parameters: 10 46 00  → Current status (70% voltage, timer off)
+```
+
+**Pairing Complete!** Remote can now send SETSPEED/SETTIMER commands.
+
+### 5. STATUS_BROADCAST (Command 0x15)
 **Observed on 2026-01-10 21:39**
 
 The MAIN_CONTROL broadcasts its current status to all devices **after every status change**:
@@ -239,9 +294,9 @@ The wired main control panel (Type 0x0E, ID 0x39) **DOES transmit RF signals**.
 - [x] Document all FAN_SETTINGS parameter fields ✅ **COMPLETED** (target preset, current voltage %, timer)
 - [x] Identify STATUS_BROADCAST command ✅ **COMPLETED** (0x15)
 - [x] Discover voltage ramping behavior ✅ **COMPLETED**
+- [x] Capture network join/pairing process ✅ **COMPLETED** (JOIN_ACK → JOIN_REQUEST → FRAME_0B)
+- [x] Investigate command 0x0B purpose ✅ **COMPLETED** (Pairing handshake confirmation)
 - [ ] Capture SETVOLTAGE commands (percentage control)
-- [ ] Test network join/pairing process
-- [ ] Investigate command 0x0B purpose
 - [ ] Capture and test SETSPEED command transmission from ESPHome
 - [ ] Test SETTIMER (0x14) transmission from ESPHome
 - [ ] Understand why timer is sent to MAIN_CONTROL instead of MAIN_UNIT
