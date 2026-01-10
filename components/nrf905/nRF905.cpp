@@ -93,38 +93,30 @@ void nRF905::loop() {
   static bool frameProcessed = false;
   uint8_t buffer[NRF905_MAX_FRAMESIZE];
 
-  // OPTIMIZATION: Check DR GPIO pin first (if configured) - much faster than SPI readStatus()
-  static uint32_t dr_high_count = 0;
-  static uint32_t dr_check_count = 0;
-  static uint32_t last_debug_log = 0;
-
+  // Check DR GPIO pin first (if configured) - faster than SPI readStatus()
   if (this->_gpio_pin_dr != NULL) {
-    dr_check_count++;
     bool dr_pin_high = this->_gpio_pin_dr->digital_read();
-
-    if (dr_pin_high) {
-      dr_high_count++;
-    }
-
-    // Log DR pin stats every 10 seconds
-    if (millis() - last_debug_log > 10000) {
-      ESP_LOGE(TAG, "DR PIN STATS: Checked %u times, HIGH %u times (%.1f%%)",
-               dr_check_count, dr_high_count,
-               (dr_high_count * 100.0f) / dr_check_count);
-      last_debug_log = millis();
-    }
-
     if (!dr_pin_high) {
       // No data ready, skip expensive SPI status read
       lastState = 0x00;
       frameProcessed = false;
       return;
     }
-
-    ESP_LOGE(TAG, "DR PIN HIGH - Frame available!");
+    // DR is HIGH - proceed to read frame
   }
 
-  uint8_t state = this->readStatus() & ((1 << NRF905_STATUS_DR) | (1 << NRF905_STATUS_AM));
+  uint8_t fullStatus = this->readStatus();
+  uint8_t state = fullStatus & ((1 << NRF905_STATUS_DR) | (1 << NRF905_STATUS_AM));
+
+  // DEBUG: Log every status read when DR pin is HIGH
+  static uint32_t status_log_count = 0;
+  if (++status_log_count % 100 == 0) {  // Log every 100th read to avoid spam
+    ESP_LOGE(TAG, "Status: 0x%02X, DR=%d, AM=%d, state=0x%02X",
+             fullStatus,
+             (fullStatus >> NRF905_STATUS_DR) & 1,
+             (fullStatus >> NRF905_STATUS_AM) & 1,
+             state);
+  }
 
   if (lastState != state) {
     ESP_LOGV(TAG, "State change: 0x%02X -> 0x%02X", lastState, state);
