@@ -90,21 +90,29 @@ void nRF905::dump_config() {
 void nRF905::loop() {
   static uint8_t lastState = 0x00;
   static bool addrMatch;
+  static bool frameProcessed = false;
   uint8_t buffer[NRF905_MAX_FRAMESIZE];
 
   uint8_t state = this->readStatus() & ((1 << NRF905_STATUS_DR) | (1 << NRF905_STATUS_AM));
+
   if (lastState != state) {
     ESP_LOGV(TAG, "State change: 0x%02X -> 0x%02X", lastState, state);
-    if (state == ((1 << NRF905_STATUS_DR) | (1 << NRF905_STATUS_AM))) {
-      addrMatch = false;
+    frameProcessed = false;  // Reset on state change
+  }
 
-      // Read data
-      this->readRxPayload(buffer, NRF905_MAX_FRAMESIZE);
-      ESP_LOGV(TAG, "RX Complete: %s", hexArrayToStr(buffer, NRF905_MAX_FRAMESIZE));
+  // Check for valid frame (DR + AM flags both set) AND not yet processed
+  if (state == ((1 << NRF905_STATUS_DR) | (1 << NRF905_STATUS_AM)) && !frameProcessed) {
+    addrMatch = false;
 
-      if (this->onRxComplete != NULL) {
-        this->onRxComplete(buffer, NRF905_MAX_FRAMESIZE);
-      }
+    // Read data
+    this->readRxPayload(buffer, NRF905_MAX_FRAMESIZE);
+    ESP_LOGV(TAG, "RX Complete: %s", hexArrayToStr(buffer, NRF905_MAX_FRAMESIZE));
+
+    if (this->onRxComplete != NULL) {
+      this->onRxComplete(buffer, NRF905_MAX_FRAMESIZE);
+    }
+
+    frameProcessed = true;  // Mark as processed to avoid re-reading same frame
     } else if (state == (1 << NRF905_STATUS_DR)) {
       addrMatch = false;
 
