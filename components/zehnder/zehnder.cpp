@@ -208,14 +208,14 @@ void ZehnderRF::manual_init() {
 
   this->speed_count_ = 4;
 
-  // Configure device identity as REMOTE_CONTROL (type 0x03)
+  // Configure device identity as RF_REMOTE (type 0x0F) - same as bathroom remote
   this->config_.fan_networkId = 0xFE75FD9B;
-  this->config_.fan_my_device_type = FAN_TYPE_REMOTE_CONTROL;  // 0x03
-  this->config_.fan_my_device_id = 0xE7;  // Random ID (avoid 0x39 which is main unit)
+  this->config_.fan_my_device_type = FAN_TYPE_RF_REMOTE;  // 0x0F (like bathroom remote)
+  this->config_.fan_my_device_id = 0xE7;  // Random ID (avoid 0x39 and 0xD7)
   this->config_.fan_main_unit_type = FAN_TYPE_MAIN_UNIT;  // 0x01
   this->config_.fan_main_unit_id = 0x39;  // Main unit ID (seen in logs)
 
-  ESP_LOGE(TAG, "Device configured as REMOTE_CONTROL (0x03) with ID 0x%02X", this->config_.fan_my_device_id);
+  ESP_LOGE(TAG, "Device configured as RF_REMOTE (0x0F) with ID 0x%02X", this->config_.fan_my_device_id);
   ESP_LOGE(TAG, "Target: MAIN_UNIT (0x01) with ID 0x%02X", this->config_.fan_main_unit_id);
 
   this->rf_->setOnRxComplete([this](const uint8_t *const pData, const uint8_t dataLength) {
@@ -282,12 +282,8 @@ void ZehnderRF::pair_as_remote() {
   ESP_LOGE(TAG, "Step 1: Sending JOIN_ACK with LINK_ID (0xA55A5AA5)");
   this->startTransmit(this->_txFrame, -1, NULL);
 
-  // Wait for TX to complete
-  for (int i = 0; i < 50; i++) {
-    if (this->rfState_ == RfStateIdle) break;
-    delay(10);
-  }
-  delay(200);  // Extra delay between frames
+  // Wait for TX to complete - give it plenty of time
+  delay(500);
 
   // Step 2: Send JOIN_ACK with Network ID (little endian)
   memset(this->_txFrame, 0, FAN_FRAMESIZE);
@@ -309,11 +305,7 @@ void ZehnderRF::pair_as_remote() {
   this->startTransmit(this->_txFrame, -1, NULL);
 
   // Wait for TX to complete
-  for (int i = 0; i < 50; i++) {
-    if (this->rfState_ == RfStateIdle) break;
-    delay(10);
-  }
-  delay(200);
+  delay(500);
 
   // Step 3: Send JOIN_REQUEST to MAIN_CONTROL
   memset(this->_txFrame, 0, FAN_FRAMESIZE);
@@ -335,10 +327,7 @@ void ZehnderRF::pair_as_remote() {
   this->startTransmit(this->_txFrame, -1, NULL);
 
   // Wait for TX to complete
-  for (int i = 0; i < 50; i++) {
-    if (this->rfState_ == RfStateIdle) break;
-    delay(10);
-  }
+  delay(500);
 
   ESP_LOGE(TAG, "========================================");
   ESP_LOGE(TAG, "PAIRING SEQUENCE COMPLETE");
