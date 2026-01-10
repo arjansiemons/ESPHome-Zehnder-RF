@@ -113,34 +113,33 @@ void nRF905::loop() {
     }
 
     frameProcessed = true;  // Mark as processed to avoid re-reading same frame
-    } else if (state == (1 << NRF905_STATUS_DR)) {
-      addrMatch = false;
+  } else if (state == (1 << NRF905_STATUS_DR)) {
+    addrMatch = false;
 
-      // ESP_LOGD(TAG, "TX Ready; retransmits: %u", this->retransmitCounter);
-      // if (this->retransmitCounter > 0) {
-      //   --this->retransmitCounter;
-      // } else {
-      this->setMode(this->nextMode);
+    // ESP_LOGD(TAG, "TX Ready; retransmits: %u", this->retransmitCounter);
+    // if (this->retransmitCounter > 0) {
+    //   --this->retransmitCounter;
+    // } else {
+    this->setMode(this->nextMode);
 
-      if (this->onTxReady != NULL) {
-        this->onTxReady();
-      }
-      // }
-    } else if (state == (1 << NRF905_STATUS_AM)) {
-      addrMatch = true;
-      ESP_LOGD(TAG, "Addr match");
-
-      // if (onAddrMatch != NULL)
-      //   onAddrMatch(this);
-    } else if (state == 0 && addrMatch) {
-      addrMatch = false;
-      ESP_LOGD(TAG, "Rx Invalid");
-      // if (onRxInvalid != NULL)
-      //   onRxInvalid(this);
+    if (this->onTxReady != NULL) {
+      this->onTxReady();
     }
+    // }
+  } else if (state == (1 << NRF905_STATUS_AM)) {
+    addrMatch = true;
+    ESP_LOGD(TAG, "Addr match");
 
-    lastState = state;
+    // if (onAddrMatch != NULL)
+    //   onAddrMatch(this);
+  } else if (state == 0 && addrMatch) {
+    addrMatch = false;
+    ESP_LOGD(TAG, "Rx Invalid");
+    // if (onRxInvalid != NULL)
+    //   onRxInvalid(this);
   }
+
+  lastState = state;
 
   // _drPrev = _drNew;
 }
