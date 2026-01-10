@@ -179,6 +179,11 @@ void ZehnderRF::manual_init() {
   }
   ESP_LOGE(TAG, "nRF905 component OK at %p", this->rf_);
 
+  // CRITICAL: Manually call nRF905 setup() - ESPHome never calls it!
+  ESP_LOGE(TAG, "Calling nRF905 setup() manually...");
+  this->rf_->setup();
+  ESP_LOGE(TAG, "nRF905 setup() completed");
+
   // Do the initialization
   nrf905::Config rfConfig;
   rfConfig = this->rf_->getConfig();
@@ -259,6 +264,10 @@ void ZehnderRF::loop(void) {
   loop_count++;
   if (millis() - last_log_time > 5000) {
     ESP_LOGE(TAG, "!!! LOOP RUNNING !!! Count: %u", loop_count);
+    // Also log nRF905 status if initialized
+    if (this->initialized_ && this->rf_ != nullptr) {
+      ESP_LOGE(TAG, "nRF905 mode check - should be in RECEIVE mode");
+    }
     last_log_time = millis();
   }
 
