@@ -247,9 +247,19 @@ void ZehnderRF::dump_config(void) {
 
 void ZehnderRF::loop(void) {
   static bool first_log = true;
+  static uint32_t loop_count = 0;
+  static uint32_t last_log_time = 0;
+
   if (first_log) {
     ESP_LOGE(TAG, "!!! LOOP() ENTERED FOR FIRST TIME !!!");
     first_log = false;
+  }
+
+  // Log every 5 seconds to verify loop is running
+  loop_count++;
+  if (millis() - last_log_time > 5000) {
+    ESP_LOGE(TAG, "!!! LOOP RUNNING !!! Count: %u", loop_count);
+    last_log_time = millis();
   }
 
   uint8_t deviceId;
