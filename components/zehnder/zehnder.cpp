@@ -57,11 +57,11 @@ typedef struct __attribute__((packed)) {
 } RfFrame;
 
 ZehnderRF::ZehnderRF(void) {
-  ESP_LOGW("zehnder", "ZehnderRF CONSTRUCTOR called");
+  ESP_LOGE("zehnder", "!!! CONSTRUCTOR CALLED !!!");
 }
 
 void ZehnderRF::set_rf(nrf905::nRF905 *const pRf) {
-  ESP_LOGW(TAG, "set_rf() called with pointer: %p", pRf);
+  ESP_LOGE(TAG, "!!! set_rf() CALLED !!!");
   rf_ = pRf;
 }
 
@@ -93,7 +93,7 @@ void ZehnderRF::control(const fan::FanCall &call) {
 }
 
 void ZehnderRF::setup() {
-  ESP_LOGW(TAG, "=== Zehnder setup() START ===");
+  ESP_LOGE(TAG, "!!! SETUP() CALLED !!!");
 
   // Clear config
   memset(&this->config_, 0, sizeof(Config));
@@ -169,6 +169,7 @@ void ZehnderRF::setup() {
 }
 
 void ZehnderRF::dump_config(void) {
+  ESP_LOGE(TAG, "!!! dump_config() CALLED !!!");
   ESP_LOGCONFIG(TAG, "Zehnder Fan config:");
   ESP_LOGCONFIG(TAG, "  Polling interval   %u", this->interval_);
   ESP_LOGCONFIG(TAG, "  Fan networkId      0x%08X", this->config_.fan_networkId);
