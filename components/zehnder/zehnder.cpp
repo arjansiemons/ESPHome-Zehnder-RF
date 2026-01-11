@@ -160,6 +160,14 @@ void ZehnderRF::setup() {
 
   this->speed_count_ = 4;  // 4 speeds: Presets 1-4 (HA can also turn OFF with preset 0)
 
+  // === CRITICAL: Call nRF905 setup() BEFORE registering callbacks ===
+  // This initializes the GPIO pins and hardware.
+  // ESPHome does NOT automatically call setup() on referenced components!
+  ESP_LOGI(TAG, "Calling nRF905 setup() to initialize hardware...");
+  this->rf_->setup();
+  ESP_LOGI(TAG, "nRF905 hardware initialized");
+
+  // Now register callbacks AFTER hardware is initialized
   this->rf_->setOnTxReady([this](void) {
     ESP_LOGD(TAG, "Tx Ready");
     if (this->rfState_ == RfStateTxBusy) {
@@ -173,13 +181,9 @@ void ZehnderRF::setup() {
   });
 
   this->rf_->setOnRxComplete([this](const uint8_t *const pData, const uint8_t dataLength) {
-    ESP_LOGI(TAG, "!!! RX CALLBACK - FRAME RECEIVED !!!");  // Changed to LOGI so we see it
+    ESP_LOGI(TAG, "!!! RX CALLBACK - FRAME RECEIVED !!!");
     this->rfHandleReceived(pData, dataLength);
   });
-
-  // === AUTOMATIC INITIALIZATION ===
-  // NOTE: Do NOT call rf_->setup() - ESPHome calls it automatically!
-  // Calling it twice can cause issues with callbacks and GPIO pins.
 
   ESP_LOGI(TAG, "Configuring device identity and RF parameters...");
 

@@ -180,12 +180,49 @@ Setup priority was te laag (399), dus Zehnder::setup() liep VOOR nRF905::setup()
 
 Nu loopt Zehnder::setup() NA nRF905::setup(), dus callbacks blijven werken!
 
+## Test Resultaten Fix #2 (commit 9c8dca8)
+
+### ❌ WERKT NOG STEEDS NIET
+Upload gedaan, fan control geeft nog steeds timeouts:
+```
+[10:59:21.238] Sending to fan: HA speed 1 (state=ON) → Zehnder preset 1
+[10:59:32.549] !!! SET SPEED TIMEOUT - NO RESPONSE FROM FAN !!!
+```
+
+**Setup() logs ontbreken** - setup() liep waarschijnlijk VOOR API verbinding, dus logs niet zichtbaar.
+
+### Hypothese
+Setup priority aanpassing (599) is niet genoeg. Mogelijke problemen:
+1. nRF905::setup() wordt nog steeds niet aangeroepen door ESPHome
+2. Callbacks worden nog steeds gereset na onze setup()
+3. Setup volgorde is anders dan verwacht
+
+### Volgende Stap
+Probeer de oude werkende aanpak van manual_init():
+**Roep rf_->setup() EXPLICIET aan in setup(), net als manual_init() doet**
+
+## FIX #3: Expliciet rf_->setup() aanroepen
+
+### Conclusie
+Setup priority helpt niet - ESPHome roept `rf_->setup()` gewoon NOOIT automatisch aan voor referenced components!
+
+### Oplossing
+Simpel: doe wat manual_init() doet - roep rf_->setup() EXPLICIET aan VOOR het registreren van callbacks:
+
+```cpp
+// In setup():
+this->rf_->setup();  // ← Initialiseer hardware EERST
+this->rf_->setOnRxComplete(...);  // ← DAN callbacks registreren
+```
+
+Dit is exact wat manual_init() doet en dat werkt perfect!
+
 ## Volgende Acties
 - [x] Log analyse gedaan - probleem geïdentificeerd
 - [x] Fix #1 geïmplementeerd (MAIN_CONTROL → MAIN_UNIT target)
 - [x] Fix #1 getest - werkt met Manual Init
 - [x] Setup priority probleem gevonden
 - [x] Fix #2 geïmplementeerd (setup priority aangepast)
-- [ ] Code committen en pushen
-- [ ] Firmware uploaden en testen (zonder Manual Init!)
-- [ ] Verifiëren dat automatische pairing werkt
+- [x] Fix #2 getest - WERKT NOG NIET
+- [ ] Fix #3: Expliciet rf_->setup() aanroepen in setup()
+- [ ] Testen of dit het probleem oplost
