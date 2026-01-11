@@ -44,7 +44,7 @@ external_components:
       url: https://github.com/arjansiemons/ESPHome-Zehnder-RF
       ref: main
     components: [ nrf905, zehnder ]
-    refresh: 0s
+    refresh: always  # Always fetch latest code during development
 
 # SPI configuration for ESP32
 spi:
