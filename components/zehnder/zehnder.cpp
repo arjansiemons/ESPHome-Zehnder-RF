@@ -208,42 +208,30 @@ void ZehnderRF::setup() {
   this->rf_->writeTxAddress(0xFE75FD9B);
   ESP_LOGE(TAG, ">>> nRF905 fully configured for BOXSTREAM network");
 
-  // === NOW register callbacks AFTER RF config is complete ===
-  this->rf_->setOnTxReady([this](void) {
-    ESP_LOGD(TAG, "Tx Ready");
-    if (this->rfState_ == RfStateTxBusy) {
-      if (this->retries_ >= 0) {
-        this->msgSendTime_ = millis();
-        this->rfState_ = RfStateRxWait;
-      } else {
-        this->rfState_ = RfStateIdle;
-      }
-    }
-  });
-
+  // === NOW register RX callback AFTER RF config (DON'T register TX callback - breaks things!) ===
   this->rf_->setOnRxComplete([this](const uint8_t *const pData, const uint8_t dataLength) {
-    ESP_LOGI(TAG, "!!! RX CALLBACK - FRAME RECEIVED !!!");
+    ESP_LOGE(TAG, "!!! RX CALLBACK - FRAME RECEIVED !!!");
     this->rfHandleReceived(pData, dataLength);
   });
-  ESP_LOGE(TAG, ">>> Callbacks registered");
+  ESP_LOGE(TAG, ">>> RX Callback registered");
 
   // Enable promiscuous mode to receive all broadcasts (STATUS_BROADCAST, etc.)
   this->rf_->setPromiscuousMode(true);
   ESP_LOGE(TAG, ">>> Promiscuous mode enabled");
 
-  // Start in receive mode
-  this->rf_->setMode(nrf905::Receive);
-  ESP_LOGE(TAG, ">>> nRF905 set to RECEIVE mode");
-
-  // Initialize fan state to OFF and publish to Home Assistant
+  // Initialize fan state to OFF and publish to Home Assistant BEFORE starting receive
   this->state = false;
   this->speed = 0;
   this->publish_state();
 
-  // Add a small delay to allow time for API connection before continuing
+  // Add delay to allow API connection so we can see setup logs
   ESP_LOGE(TAG, ">>> Waiting 2 seconds for API to connect...");
   delay(2000);
-  ESP_LOGE(TAG, ">>> Wait complete, continuing setup...");
+  ESP_LOGE(TAG, ">>> Wait complete, starting receive mode...");
+
+  // Start in receive mode - do this LAST
+  this->rf_->setMode(nrf905::Receive);
+  ESP_LOGE(TAG, ">>> nRF905 set to RECEIVE mode");
 
   // Decide whether to pair or go straight to Idle
   if (config_loaded) {
