@@ -120,9 +120,14 @@ void ZehnderRF::setup() {
     ESP_LOGW(TAG, "  Main Type: 0x%02X, Main ID: 0x%02X", this->config_.fan_main_unit_type, this->config_.fan_main_unit_id);
 
     // Check if config looks valid (paired)
-    if (this->config_.fan_networkId != 0 && this->config_.fan_my_device_id != 0) {
+    if (this->config_.fan_networkId == 0xFE75FD9B &&
+        this->config_.fan_my_device_type == FAN_TYPE_RF_REMOTE &&
+        this->config_.fan_my_device_id != 0 &&
+        this->config_.fan_main_unit_id != 0) {
       config_loaded = true;
-      ESP_LOGW(TAG, "Valid pairing configuration found - will skip auto-pairing");
+      ESP_LOGW(TAG, "✓ Valid pairing configuration found - will skip auto-pairing");
+    } else {
+      ESP_LOGW(TAG, "✗ Pairing config invalid or incomplete - will auto-pair");
     }
   }
 
@@ -133,7 +138,7 @@ void ZehnderRF::setup() {
   }
   ESP_LOGI(TAG, "nRF905 component OK");
 
-  this->speed_count_ = 4;  // 4 speeds: LOW, MEDIUM, HIGH, MAX (OFF is state=false)
+  this->speed_count_ = 4;  // 4 speeds: LOW, MEDIUM, HIGH, MAX (preset 0 = OFF is state=false)
 
   this->rf_->setOnTxReady([this](void) {
     ESP_LOGD(TAG, "Tx Ready");
@@ -255,7 +260,7 @@ void ZehnderRF::manual_init() {
   this->rf_->updateConfig(&rfConfig);
   this->rf_->writeTxAddress(0xFE75FD9B);
 
-  this->speed_count_ = 4;  // 4 speeds: LOW, MEDIUM, HIGH, MAX (OFF is state=false)
+  this->speed_count_ = 4;  // 4 speeds: LOW, MEDIUM, HIGH, MAX (preset 0 = OFF is state=false)
 
   // Configure device identity as RF_REMOTE (type 0x0F) - same as bathroom remote
   this->config_.fan_networkId = 0xFE75FD9B;
@@ -614,28 +619,11 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
       ESP_LOGI(TAG, "STATUS_BROADCAST: Voltage=%d%%, Timer=%s",
                voltage_percent, timer_on ? "ON" : "OFF");
 
-      // Map voltage to speed preset (approximate)
-      // 0% = OFF, 30% = LOW, 50% = MEDIUM, 90% = HIGH, 100% = MAX
-      uint8_t new_speed = 0;
-      if (voltage_percent == 0) {
-        new_speed = 0;  // OFF
-      } else if (voltage_percent <= 30) {
-        new_speed = 1;  // LOW
-      } else if (voltage_percent <= 50) {
-        new_speed = 2;  // MEDIUM
-      } else if (voltage_percent <= 90) {
-        new_speed = 3;  // HIGH
-      } else {
-        new_speed = 4;  // MAX
-      }
-
-      // Update fan state if changed
-      if (this->speed != new_speed || this->state != (new_speed > 0)) {
-        ESP_LOGI(TAG, "Updating fan state from STATUS_BROADCAST: speed %d -> %d", this->speed, new_speed);
-        this->state = (new_speed > 0);
-        this->speed = new_speed;
-        this->publish_state();
-      }
+      // NOTE: STATUS_BROADCAST only shows current voltage, not target preset
+      // The voltage may be transitional (ramping up/down) so mapping is unreliable
+      // We rely on SETSPEED broadcasts and FAN_SETTINGS for accurate state
+      // Just log this for information, don't update state
+      ESP_LOGD(TAG, "  (Not updating state - voltage %d%% may be transitional)", voltage_percent);
     }
     return;  // Don't process in state machine
   }
@@ -651,11 +639,24 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
       ESP_LOGI(TAG, "FAN_SETTINGS: Target preset=%d, Current voltage=%d%%",
                target_preset, current_voltage);
 
+      // IMPORTANT: Use TARGET preset, not current voltage!
+      // The fan may still be ramping up/down, but we want to show the target state
+      // Map Zehnder preset (0-4) to HA state/speed:
+      // Preset 0 → OFF (state=false, speed=0)
+      // Preset 1 (LOW) → Speed 1 (25%)
+      // Preset 2 (MEDIUM) → Speed 2 (50%)
+      // Preset 3 (HIGH) → Speed 3 (75%)
+      // Preset 4 (MAX) → Speed 4 (100%)
+
       // Update fan state based on target preset (what the fan is moving towards)
-      if (this->speed != target_preset || this->state != (target_preset > 0)) {
-        ESP_LOGI(TAG, "Updating fan state from FAN_SETTINGS: speed %d -> %d", this->speed, target_preset);
-        this->state = (target_preset > 0);
-        this->speed = target_preset;
+      bool new_state = (target_preset > 0);
+      uint8_t new_speed = target_preset;  // Direct mapping: preset = speed
+
+      if (this->speed != new_speed || this->state != new_state) {
+        ESP_LOGI(TAG, "Updating fan state from FAN_SETTINGS: preset %d → state=%s speed=%d",
+                 target_preset, new_state ? "ON" : "OFF", new_speed);
+        this->state = new_state;
+        this->speed = new_speed;
         this->publish_state();
       }
     }
@@ -684,15 +685,19 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
       ESP_LOGI(TAG, "!!! SETSPEED BROADCAST HANDLER TRIGGERED !!!");
       ESP_LOGI(TAG, "SETSPEED broadcast from MAIN_CONTROL: preset=%d", speed_preset);
 
+      // Map preset to HA state/speed (same as FAN_SETTINGS)
+      bool new_state = (speed_preset > 0);
+      uint8_t new_speed = speed_preset;
+
       // Update fan state if changed
-      if (this->speed != speed_preset || this->state != (speed_preset > 0)) {
-        ESP_LOGI(TAG, "Updating fan state from SETSPEED broadcast: speed %d -> %d",
-                 this->speed, speed_preset);
-        this->state = (speed_preset > 0);
-        this->speed = speed_preset;
+      if (this->speed != new_speed || this->state != new_state) {
+        ESP_LOGI(TAG, "Updating fan state from SETSPEED: preset %d → state=%s speed=%d",
+                 speed_preset, new_state ? "ON" : "OFF", new_speed);
+        this->state = new_state;
+        this->speed = new_speed;
         this->publish_state();
       } else {
-        ESP_LOGI(TAG, "Fan state already matches SETSPEED broadcast (speed=%d)", speed_preset);
+        ESP_LOGI(TAG, "Fan state already matches SETSPEED broadcast (preset=%d)", speed_preset);
       }
     }
     return;  // Don't process broadcasts in state machine
