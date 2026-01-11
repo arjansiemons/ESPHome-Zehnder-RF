@@ -136,15 +136,20 @@ void ZehnderRF::setup() {
     ESP_LOGW(TAG, "  Main Type: 0x%02X, Main ID: 0x%02X", this->config_.fan_main_unit_type, this->config_.fan_main_unit_id);
 
     // Check if config looks valid (paired)
-    // Accept both MAIN_UNIT (0x01) and MAIN_CONTROL (0x0E) as valid targets
     if (this->config_.fan_networkId == 0xFE75FD9B &&
         this->config_.fan_my_device_type == FAN_TYPE_RF_REMOTE &&
         this->config_.fan_my_device_id != 0 &&
-        (this->config_.fan_main_unit_type == FAN_TYPE_MAIN_UNIT ||
-         this->config_.fan_main_unit_type == FAN_TYPE_MAIN_CONTROL) &&
         this->config_.fan_main_unit_id != 0) {
       config_loaded = true;
       ESP_LOGW(TAG, "✓ Valid pairing configuration found - will skip auto-pairing");
+
+      // CRITICAL FIX: Always force target to MAIN_UNIT (0x01) regardless of saved value
+      // Old configs may have MAIN_CONTROL (0x0E) which doesn't work for commands
+      if (this->config_.fan_main_unit_type != FAN_TYPE_MAIN_UNIT) {
+        ESP_LOGW(TAG, "  Fixing target type from 0x%02X → 0x01 (MAIN_UNIT)", this->config_.fan_main_unit_type);
+        this->config_.fan_main_unit_type = FAN_TYPE_MAIN_UNIT;
+        this->pref_.save(&this->config_);  // Save corrected config
+      }
       ESP_LOGW(TAG, "  Using target type: 0x%02X", this->config_.fan_main_unit_type);
     } else {
       ESP_LOGW(TAG, "✗ Pairing config invalid or incomplete - will auto-pair");

@@ -232,8 +232,26 @@ De firmware upload gaat te snel en we zien setup() logs niet omdat die VOOR API 
 4. Mogelijk: voeg delay toe NA setup() zodat logs zichtbaar zijn
 5. Of: gebruik ESP_LOGE ipv ESP_LOGI voor setup logs (ERROR level altijd zichtbaar)
 
+## FINALE PROBLEEM GEVONDEN! (13:47)
+
+### Status Check Output
+```
+Main Type: 0x0E, Main ID: 0x39  ← OUDE CONFIG!
+```
+
+**ROOT CAUSE:**
+De opgeslagen config in flash heeft nog het OUDE target type (0x0E = MAIN_CONTROL) van eerdere commits!
+
+De code:
+1. Laadt config uit flash → krijgt 0x0E
+2. Validatie: "0x0E is OK" (want ik accepteerde beide)
+3. Gebruikt 0x0E → stuurt naar verkeerd device!
+
+**FIX #4: Auto-correctie van oude configs**
+Code nu automatisch fixt oude configs naar 0x01 en slaat op.
+
 ## Volgende Acties
-- [x] Fix #3 geïmplementeerd
-- [ ] Logs van gebruiker opvragen
-- [ ] Verificeren dat firmware correct gecompileerd is
-- [ ] Mogelijk: ESP_LOGE gebruiken voor alle setup logs
+- [x] Probleem gevonden - oude config in flash
+- [x] Fix #4 geïmplementeerd - auto-correctie
+- [ ] Testen: firmware uploaden en fan control proberen
+- [ ] Als dat niet werkt: "Clear Config" + Restart
