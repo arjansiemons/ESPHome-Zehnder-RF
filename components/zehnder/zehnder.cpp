@@ -210,12 +210,24 @@ void ZehnderRF::setup() {
   ESP_LOGE(TAG, ">>> Device: RF_REMOTE (0x0F) ID=0x%02X → Target: MAIN_UNIT (0x01) ID=0x%02X",
            this->config_.fan_my_device_id, this->config_.fan_main_unit_id);
 
-  // === Register ONLY RX callback like manual_init() does ===
+  // === Register BOTH callbacks - TX callback is CRITICAL for state machine! ===
+  this->rf_->setOnTxReady([this](void) {
+    ESP_LOGD(TAG, "Tx Ready");
+    if (this->rfState_ == RfStateTxBusy) {
+      if (this->retries_ >= 0) {
+        this->msgSendTime_ = millis();
+        this->rfState_ = RfStateRxWait;
+      } else {
+        this->rfState_ = RfStateIdle;
+      }
+    }
+  });
+
   this->rf_->setOnRxComplete([this](const uint8_t *const pData, const uint8_t dataLength) {
     ESP_LOGE(TAG, "!!! RX CALLBACK - FRAME RECEIVED !!!");
     this->rfHandleReceived(pData, dataLength);
   });
-  ESP_LOGE(TAG, ">>> RX Callback registered");
+  ESP_LOGE(TAG, ">>> TX and RX Callbacks registered");
 
   // Enable promiscuous mode (like manual_init)
   this->rf_->setPromiscuousMode(true);
