@@ -238,14 +238,23 @@ void ZehnderRF::setup() {
   // Restore fan state from preferences (ESPHome restore_mode support)
   auto restore = this->restore_state_();
   if (restore.has_value()) {
+    ESP_LOGE(TAG, ">>> restore_state_() returned value!");
+    ESP_LOGE(TAG, ">>> Before apply: state=%s, speed=%d", this->state ? "ON" : "OFF", this->speed);
     restore->apply(*this);
-    ESP_LOGI(TAG, ">>> Restored fan state: %s, speed: %d", this->state ? "ON" : "OFF", this->speed);
+    ESP_LOGE(TAG, ">>> After apply: state=%s, speed=%d", this->state ? "ON" : "OFF", this->speed);
+
+    // If state is ON but speed is 0, default to speed 1 (Low)
+    if (this->state && this->speed == 0) {
+      ESP_LOGW(TAG, ">>> State ON but speed 0, defaulting to speed 1");
+      this->speed = 1;
+    }
   } else {
+    ESP_LOGE(TAG, ">>> restore_state_() returned NO value (no saved state)");
     // No saved state, default to OFF
     this->state = false;
     this->speed = 0;
-    ESP_LOGI(TAG, ">>> No saved state, defaulting to OFF");
   }
+  ESP_LOGE(TAG, ">>> Final state: %s, speed: %d", this->state ? "ON" : "OFF", this->speed);
   this->publish_state();
 
   // Decide whether to pair or go straight to Idle
