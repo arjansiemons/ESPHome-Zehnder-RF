@@ -135,17 +135,18 @@ void ZehnderRF::setup() {
     ESP_LOGW(TAG, "  Main Type: 0x%02X, Main ID: 0x%02X", this->config_.fan_main_unit_type, this->config_.fan_main_unit_id);
 
     // Check if config looks valid (paired)
-    // IMPORTANT: main_unit_type must be MAIN_CONTROL (0x0E), not MAIN_UNIT (0x01)!
+    // Accept both MAIN_UNIT (0x01) and MAIN_CONTROL (0x0E) as valid targets
     if (this->config_.fan_networkId == 0xFE75FD9B &&
         this->config_.fan_my_device_type == FAN_TYPE_RF_REMOTE &&
         this->config_.fan_my_device_id != 0 &&
-        this->config_.fan_main_unit_type == FAN_TYPE_MAIN_CONTROL &&
+        (this->config_.fan_main_unit_type == FAN_TYPE_MAIN_UNIT ||
+         this->config_.fan_main_unit_type == FAN_TYPE_MAIN_CONTROL) &&
         this->config_.fan_main_unit_id != 0) {
       config_loaded = true;
       ESP_LOGW(TAG, "✓ Valid pairing configuration found - will skip auto-pairing");
+      ESP_LOGW(TAG, "  Using target type: 0x%02X", this->config_.fan_main_unit_type);
     } else {
       ESP_LOGW(TAG, "✗ Pairing config invalid or incomplete - will auto-pair");
-      ESP_LOGW(TAG, "  (Note: Old configs with MAIN_UNIT target will be re-paired to MAIN_CONTROL)");
     }
   }
 
@@ -188,12 +189,12 @@ void ZehnderRF::setup() {
     this->config_.fan_networkId = 0xFE75FD9B;
     this->config_.fan_my_device_type = FAN_TYPE_RF_REMOTE;  // 0x0F (like bathroom remote)
     this->config_.fan_my_device_id = 0xE7;  // Random ID
-    this->config_.fan_main_unit_type = FAN_TYPE_MAIN_CONTROL;  // 0x0E - RF_REMOTE targets MAIN_CONTROL!
-    this->config_.fan_main_unit_id = 0x39;  // Main control ID from protocol analysis
+    this->config_.fan_main_unit_type = FAN_TYPE_MAIN_UNIT;  // 0x01 - Commands go to MAIN_UNIT!
+    this->config_.fan_main_unit_id = 0x39;  // Main unit ID
   }
 
   ESP_LOGI(TAG, "Device configured as RF_REMOTE (0x0F) with ID 0x%02X", this->config_.fan_my_device_id);
-  ESP_LOGI(TAG, "Target: MAIN_CONTROL (0x0E) with ID 0x%02X", this->config_.fan_main_unit_id);
+  ESP_LOGI(TAG, "Target: MAIN_UNIT (0x01) with ID 0x%02X", this->config_.fan_main_unit_id);
 
   // Override nRF905 config with correct BOXSTREAM settings
   // (nRF905::setup() sets wrong defaults for Zehnder network)
@@ -224,17 +225,20 @@ void ZehnderRF::setup() {
   if (config_loaded) {
     // Already paired - go straight to Idle for immediate fan control
     this->state_ = StateIdle;
-    ESP_LOGI(TAG, "========================================");
-    ESP_LOGI(TAG, "ZEHNDER FAN READY - Already paired!");
-    ESP_LOGI(TAG, "Fan control enabled immediately");
-    ESP_LOGI(TAG, "========================================");
+    ESP_LOGE(TAG, "========================================");
+    ESP_LOGE(TAG, "ZEHNDER FAN READY - Already paired!");
+    ESP_LOGE(TAG, "Fan control enabled immediately");
+    ESP_LOGE(TAG, "Current target: Type=0x%02X, ID=0x%02X",
+             this->config_.fan_main_unit_type, this->config_.fan_main_unit_id);
+    ESP_LOGE(TAG, "========================================");
   } else {
     // Not paired yet - start pairing sequence in loop()
     this->state_ = StateStartup;
-    ESP_LOGI(TAG, "========================================");
-    ESP_LOGI(TAG, "ZEHNDER FAN SETUP COMPLETE");
-    ESP_LOGI(TAG, "Will automatically pair with fan after 5 seconds...");
-    ESP_LOGI(TAG, "========================================");
+    ESP_LOGE(TAG, "========================================");
+    ESP_LOGE(TAG, "ZEHNDER FAN SETUP COMPLETE");
+    ESP_LOGE(TAG, "State set to: StateStartup (0x%02X)", this->state_);
+    ESP_LOGE(TAG, "Will automatically pair with fan after 5 seconds...");
+    ESP_LOGE(TAG, "========================================");
   }
 
   this->initialized_ = true;
@@ -284,11 +288,11 @@ void ZehnderRF::manual_init() {
   this->config_.fan_networkId = 0xFE75FD9B;
   this->config_.fan_my_device_type = FAN_TYPE_RF_REMOTE;  // 0x0F (like bathroom remote)
   this->config_.fan_my_device_id = 0xE7;  // Random ID (avoid 0x39 and 0xD7)
-  this->config_.fan_main_unit_type = FAN_TYPE_MAIN_CONTROL;  // 0x0E - RF_REMOTE targets MAIN_CONTROL!
-  this->config_.fan_main_unit_id = 0x39;  // Main control ID (seen in logs)
+  this->config_.fan_main_unit_type = FAN_TYPE_MAIN_UNIT;  // 0x01 - Commands go to MAIN_UNIT!
+  this->config_.fan_main_unit_id = 0x39;  // Main unit ID
 
   ESP_LOGE(TAG, "Device configured as RF_REMOTE (0x0F) with ID 0x%02X", this->config_.fan_my_device_id);
-  ESP_LOGE(TAG, "Target: MAIN_CONTROL (0x0E) with ID 0x%02X", this->config_.fan_main_unit_id);
+  ESP_LOGE(TAG, "Target: MAIN_UNIT (0x01) with ID 0x%02X", this->config_.fan_main_unit_id);
 
   this->rf_->setOnRxComplete([this](const uint8_t *const pData, const uint8_t dataLength) {
     ESP_LOGE(TAG, "!!! RX CALLBACK - FRAME RECEIVED !!!");
@@ -324,6 +328,10 @@ void ZehnderRF::status_check() {
   ESP_LOGE(TAG, "  State: 0x%02X", this->state_);
   ESP_LOGE(TAG, "  RF State: 0x%02X", this->rfState_);
   ESP_LOGE(TAG, "  nRF905 pointer: %p", this->rf_);
+  ESP_LOGE(TAG, "  Config:");
+  ESP_LOGE(TAG, "    Network ID: 0x%08X", this->config_.fan_networkId);
+  ESP_LOGE(TAG, "    My Type: 0x%02X, My ID: 0x%02X", this->config_.fan_my_device_type, this->config_.fan_my_device_id);
+  ESP_LOGE(TAG, "    Main Type: 0x%02X, Main ID: 0x%02X", this->config_.fan_main_unit_type, this->config_.fan_main_unit_id);
   ESP_LOGE(TAG, "========================================");
 
   // Force back to receive mode
@@ -332,6 +340,22 @@ void ZehnderRF::status_check() {
     this->rf_->setMode(nrf905::Receive);
     ESP_LOGE(TAG, "Mode set to RECEIVE");
   }
+}
+
+void ZehnderRF::clear_config() {
+  ESP_LOGE(TAG, "========================================");
+  ESP_LOGE(TAG, "CLEARING SAVED CONFIG");
+  ESP_LOGE(TAG, "========================================");
+
+  // Clear in-memory config
+  memset(&this->config_, 0, sizeof(Config));
+
+  // Clear flash
+  this->pref_.save(&this->config_);
+
+  ESP_LOGE(TAG, "Config cleared from flash");
+  ESP_LOGE(TAG, "Please reboot device to trigger automatic pairing");
+  ESP_LOGE(TAG, "========================================");
 }
 
 void ZehnderRF::pair_as_remote() {
@@ -429,9 +453,9 @@ void ZehnderRF::pair_as_remote() {
     delay(100);  // Delay between the 2 repetitions
   }
 
-  // Step 3: Send JOIN_REQUEST to MAIN_CONTROL - 4x retransmit
+  // Step 3: Send JOIN_REQUEST to MAIN_UNIT - 4x retransmit
   memset(this->_txFrame, 0, FAN_FRAMESIZE);
-  pFrame->rx_type = FAN_TYPE_MAIN_CONTROL;  // 0x0E
+  pFrame->rx_type = FAN_TYPE_MAIN_UNIT;  // 0x01
   pFrame->rx_id = this->config_.fan_main_unit_id;  // 0x39
   pFrame->tx_type = this->config_.fan_my_device_type;
   pFrame->tx_id = this->config_.fan_my_device_id;
@@ -444,7 +468,7 @@ void ZehnderRF::pair_as_remote() {
   pFrame->payload.parameters[2] = 0x75;
   pFrame->payload.parameters[3] = 0xFE;
 
-  ESP_LOGE(TAG, "Step 3: Sending JOIN_REQUEST to MAIN_CONTROL - 4x retransmit");
+  ESP_LOGE(TAG, "Step 3: Sending JOIN_REQUEST to MAIN_UNIT - 4x retransmit");
 
   // Send 4 times with decreasing TTL
   for (int tx = 0; tx < 4; tx++) {
@@ -463,7 +487,7 @@ void ZehnderRF::pair_as_remote() {
 
   ESP_LOGE(TAG, "========================================");
   ESP_LOGE(TAG, "PAIRING SEQUENCE COMPLETE");
-  ESP_LOGE(TAG, "Waiting for FRAME_0B (0x0B) confirmation from MAIN_CONTROL...");
+  ESP_LOGE(TAG, "Waiting for FRAME_0B (0x0B) confirmation from MAIN_UNIT...");
   ESP_LOGE(TAG, "Re-enabling promiscuous mode for sniffing");
   ESP_LOGE(TAG, "========================================");
 

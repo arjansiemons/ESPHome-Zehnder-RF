@@ -102,3 +102,12 @@ button:
       then:
         lambda: |-
           zehnder_fan->status_check();
+
+  - platform: template
+    id: ${devicename}_clear_config
+    name: ${upper_devicename} Clear Config
+    entity_category: config
+    on_press:
+      then:
+        lambda: |-
+          zehnder_fan->clear_config();
