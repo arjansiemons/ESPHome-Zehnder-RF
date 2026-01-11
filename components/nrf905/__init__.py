@@ -1,8 +1,14 @@
+"""nRF905 RF Transceiver Component for ESPHome."""
+
 import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome import pins
 from esphome.components import spi
 from esphome.const import CONF_ID
+
+# Component metadata
+CODEOWNERS = ["@arjansiemons"]
+DEPENDENCIES = ["spi"]
 
 CONF_AM_PIN = "am_pin"
 CONF_CD_PIN = "cd_pin"
@@ -10,8 +16,6 @@ CONF_CE_PIN = "ce_pin"
 CONF_DR_PIN = "dr_pin"
 CONF_PWR_PIN = "pwr_pin"
 CONF_TXEN_PIN = "txen_pin"
-
-DEPENDENCIES = ["spi"]
 
 nrf905_ns = cg.esphome_ns.namespace("nrf905")
 nRF905Component = nrf905_ns.class_("nRF905", cg.Component, spi.SPIDevice)

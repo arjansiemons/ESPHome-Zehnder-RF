@@ -1,15 +1,11 @@
 import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome.components import fan
-from esphome.const import CONF_ID, CONF_NAME, CONF_UPDATE_INTERVAL
-from esphome.core import entity_helpers
+from esphome.const import CONF_ID, CONF_UPDATE_INTERVAL
 
 from esphome.components.nrf905 import nRF905Component
+from . import zehnder_ns, DEPENDENCIES
 
-
-DEPENDENCIES = ["nrf905"]
-
-zehnder_ns = cg.esphome_ns.namespace("zehnder")
 ZehnderRF = zehnder_ns.class_("ZehnderRF", cg.Component, fan.Fan)
 
 CONF_NRF905 = "nrf905"
