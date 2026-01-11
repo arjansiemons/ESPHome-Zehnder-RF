@@ -86,17 +86,18 @@ void ZehnderRF::control(const fan::FanCall &call) {
 
   switch (this->state_) {
     case StateIdle:
-      // Map HA speed to Zehnder preset (DIRECT 1:1 mapping):
-      // OFF → Preset 0
-      // Speed 1 (25%) → Preset 1 (Low)
-      // Speed 2 (50%) → Preset 2 (Medium)
-      // Speed 3 (75%) → Preset 3 (High)
-      // Speed 4 (100%) → Preset 4 (Max)
+      // Map HA speed to Zehnder preset (HA speed - 1 = preset):
+      // OFF → Preset 0 (AUTO - lowest, fan still runs)
+      // Speed 1 (20%) → Preset 0 (AUTO)
+      // Speed 2 (40%) → Preset 1 (Low)
+      // Speed 3 (60%) → Preset 2 (Medium)
+      // Speed 4 (80%) → Preset 3 (High)
+      // Speed 5 (100%) → Preset 4 (Max)
       uint8_t zehnder_preset;
-      if (!this->state) {
-        zehnder_preset = 0;  // OFF → Preset 0
+      if (!this->state || this->speed == 0) {
+        zehnder_preset = 0;  // OFF → Preset 0 (AUTO)
       } else {
-        zehnder_preset = this->speed;  // Direct 1:1 mapping
+        zehnder_preset = this->speed - 1;  // HA speed 1-5 → preset 0-4
       }
 
       ESP_LOGI(TAG, "Sending to fan: HA speed %d (state=%s) → Zehnder preset %d",
@@ -162,7 +163,7 @@ void ZehnderRF::setup() {
   }
   ESP_LOGE(TAG, "nRF905 component OK");
 
-  this->speed_count_ = 4;  // 4 speeds (presets 1-4) + OFF (preset 0) = 5 positions
+  this->speed_count_ = 5;  // 5 speeds (HA 1-5 → presets 0-4)
 
   // === Register TX callback ===
   // Note: nRF905::setup() runs BEFORE this (priority 600 vs 599)
@@ -205,7 +206,7 @@ void ZehnderRF::setup() {
   // === NOW configure device identity AFTER RF config (manual_init order!) ===
   ESP_LOGE(TAG, ">>> Configuring device identity...");
 
-  this->speed_count_ = 4;  // 4 speeds (presets 1-4) + OFF (preset 0) = 5 positions
+  this->speed_count_ = 5;  // 5 speeds (HA 1-5 → presets 0-4)
 
   // If no valid config was loaded, use our known-good defaults
   if (!config_loaded) {
@@ -301,7 +302,7 @@ void ZehnderRF::manual_init() {
   this->rf_->updateConfig(&rfConfig);
   this->rf_->writeTxAddress(0xFE75FD9B);
 
-  this->speed_count_ = 4;  // 4 speeds (presets 1-4) + OFF (preset 0) = 5 positions
+  this->speed_count_ = 5;  // 5 speeds (HA 1-5 → presets 0-4)
 
   // Configure device identity as RF_REMOTE (type 0x0F) - same as bathroom remote
   this->config_.fan_networkId = 0xFE75FD9B;
@@ -709,17 +710,17 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
 
       // IMPORTANT: Use TARGET preset, not current voltage!
       // The fan may still be ramping up/down, but we want to show the target state
-      // Map Zehnder preset to HA speed (DIRECT 1:1 mapping):
-      // Preset 1 → Speed 1 (20%)
-      // Preset 2 → Speed 2 (40%)
-      // Preset 3 → Speed 3 (60%)
-      // Preset 4 → Speed 4 (80%)
-      // Preset 5 → Speed 5 (100%) if it exists
-      // Note: Preset 0 may exist for OFF/AUTO mode
+      // Map Zehnder preset to HA speed (preset + 1 = HA speed):
+      // Preset 0 (AUTO) → Speed 1 (20%)
+      // Preset 1 (Low) → Speed 2 (40%)
+      // Preset 2 (Medium) → Speed 3 (60%)
+      // Preset 3 (High) → Speed 4 (80%)
+      // Preset 4 (Max) → Speed 5 (100%)
+      // Note: There's no true OFF on physical control, preset 0 is lowest
 
       // Update fan state based on target preset (what the fan is moving towards)
-      bool new_state = (target_preset > 0);  // Preset 0 = OFF, others = ON
-      uint8_t new_speed = target_preset;  // Direct 1:1 mapping
+      bool new_state = true;  // Fan always ON when we receive settings (no true OFF)
+      uint8_t new_speed = target_preset + 1;  // Preset 0-4 → HA speed 1-5
 
       if (this->speed != new_speed || this->state != new_state) {
         ESP_LOGI(TAG, "Updating fan state from FAN_SETTINGS: preset %d → speed %d (ON)",
@@ -754,15 +755,16 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
       ESP_LOGI(TAG, "!!! SETSPEED BROADCAST HANDLER TRIGGERED !!!");
       ESP_LOGI(TAG, "SETSPEED broadcast from MAIN_CONTROL: preset=%d", speed_preset);
 
-      // Map preset to HA state/speed (DIRECT 1:1 mapping, same as FAN_SETTINGS)
-      // Preset 0 = OFF, Preset 1-5 = Speed 1-5
-      bool new_state = (speed_preset > 0);
-      uint8_t new_speed = speed_preset;  // Direct 1:1 mapping
+      // Map preset to HA state/speed (preset + 1 = HA speed):
+      // Preset 0 (AUTO) → Speed 1, Preset 1-4 → Speed 2-5
+      // Note: No true OFF, preset 0 is lowest (fan still runs)
+      bool new_state = true;  // Fan always ON (no true OFF on physical control)
+      uint8_t new_speed = speed_preset + 1;  // Preset 0-4 → HA speed 1-5
 
       // Update fan state if changed
       if (this->speed != new_speed || this->state != new_state) {
-        ESP_LOGI(TAG, "Updating fan state from SETSPEED: preset %d → speed %d (%s)",
-                 speed_preset, new_speed, new_state ? "ON" : "OFF");
+        ESP_LOGI(TAG, "Updating fan state from SETSPEED: preset %d → speed %d (ON)",
+                 speed_preset, new_speed);
         this->state = new_state;
         this->speed = new_speed;
         this->publish_state();
