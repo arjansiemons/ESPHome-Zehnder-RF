@@ -165,7 +165,21 @@ void ZehnderRF::setup() {
 
   this->speed_count_ = 4;  // 4 speeds: Presets 1-4 (HA can also turn OFF with preset 0)
 
-  // === CRITICAL: Call nRF905 setup() FIRST ===
+  // === Register TX callback BEFORE calling rf_->setup() ===
+  this->rf_->setOnTxReady([this](void) {
+    ESP_LOGD(TAG, "Tx Ready");
+    if (this->rfState_ == RfStateTxBusy) {
+      if (this->retries_ >= 0) {
+        this->msgSendTime_ = millis();
+        this->rfState_ = RfStateRxWait;
+      } else {
+        this->rfState_ = RfStateIdle;
+      }
+    }
+  });
+  ESP_LOGE(TAG, ">>> TX Callback registered (before rf_->setup())");
+
+  // === CRITICAL: Call nRF905 setup() AFTER TX callback ===
   ESP_LOGE(TAG, ">>> CALLING nRF905 setup() to initialize hardware...");
   this->rf_->setup();
   ESP_LOGE(TAG, ">>> nRF905 hardware initialized");
@@ -210,24 +224,12 @@ void ZehnderRF::setup() {
   ESP_LOGE(TAG, ">>> Device: RF_REMOTE (0x0F) ID=0x%02X → Target: MAIN_UNIT (0x01) ID=0x%02X",
            this->config_.fan_my_device_id, this->config_.fan_main_unit_id);
 
-  // === Register BOTH callbacks - TX callback is CRITICAL for state machine! ===
-  this->rf_->setOnTxReady([this](void) {
-    ESP_LOGD(TAG, "Tx Ready");
-    if (this->rfState_ == RfStateTxBusy) {
-      if (this->retries_ >= 0) {
-        this->msgSendTime_ = millis();
-        this->rfState_ = RfStateRxWait;
-      } else {
-        this->rfState_ = RfStateIdle;
-      }
-    }
-  });
-
+  // === Register RX callback (TX callback registered earlier by nRF905 or stays from previous setup) ===
   this->rf_->setOnRxComplete([this](const uint8_t *const pData, const uint8_t dataLength) {
     ESP_LOGE(TAG, "!!! RX CALLBACK - FRAME RECEIVED !!!");
     this->rfHandleReceived(pData, dataLength);
   });
-  ESP_LOGE(TAG, ">>> TX and RX Callbacks registered");
+  ESP_LOGE(TAG, ">>> RX Callback registered (TX callback inherited)");
 
   // Enable promiscuous mode (like manual_init)
   this->rf_->setPromiscuousMode(true);
