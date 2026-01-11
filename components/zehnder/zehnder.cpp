@@ -235,9 +235,17 @@ void ZehnderRF::setup() {
   this->rf_->setMode(nrf905::Receive);
   ESP_LOGE(TAG, ">>> nRF905 set to RECEIVE mode");
 
-  // Initialize fan state AFTER starting receive (different from manual_init but needed for HA)
-  this->state = false;
-  this->speed = 0;
+  // Restore fan state from preferences (ESPHome restore_mode support)
+  auto restore = this->restore_state_();
+  if (restore.has_value()) {
+    restore->apply(*this);
+    ESP_LOGI(TAG, ">>> Restored fan state: %s, speed: %d", this->state ? "ON" : "OFF", this->speed);
+  } else {
+    // No saved state, default to OFF
+    this->state = false;
+    this->speed = 0;
+    ESP_LOGI(TAG, ">>> No saved state, defaulting to OFF");
+  }
   this->publish_state();
 
   // Decide whether to pair or go straight to Idle
@@ -247,7 +255,7 @@ void ZehnderRF::setup() {
     ESP_LOGE(TAG, "========================================");
     ESP_LOGE(TAG, "ZEHNDER FAN READY - Already paired!");
     ESP_LOGE(TAG, "Fan control enabled immediately");
-    ESP_LOGE(TAG, "State restored via ESPHome restore_mode");
+    ESP_LOGE(TAG, "Fan state: %s, Speed: %d", this->state ? "ON" : "OFF", this->speed);
     ESP_LOGE(TAG, "Current target: Type=0x%02X, ID=0x%02X",
              this->config_.fan_main_unit_type, this->config_.fan_main_unit_id);
     ESP_LOGE(TAG, "========================================");

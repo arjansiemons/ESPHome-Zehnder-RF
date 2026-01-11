@@ -69,6 +69,7 @@ fan:
     name: "Zehnder Ventilation"
     nrf905: nrf905_rf
     update_interval: "60s"
+    restore_mode: RESTORE_DEFAULT_OFF  # Restore previous state on boot
 
 # Initialization and diagnostics buttons
 button:
