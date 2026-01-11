@@ -47,4 +47,18 @@ De Buva Boxstream hoofdbediening heeft 5 fysieke standen, maar stuurt slechts **
 
 ## Badkamer Remote met Timer
 
-De badkamer afstandsbediening (type 0x0F) stuurt altijd preset 4 (maximale ventilatie) wanneer de timer wordt geactiveerd.
+De badkamer afstandsbediening (type 0x0F) stuurt een SETTIMER command (0x14) met:
+- **Speed**: 0x05 (boost mode - hoger dan normale MAX?)
+- **Timer**: 0x00-0xB4 (0-180 minuten)
+
+Voorbeeld: `05 2D` = boost speed, 45 minuten timer.
+
+Na het SETTIMER command volgt een STATUS_BROADCAST met timer=ON.
+
+### Timer Flow (badkamer remote)
+1. RF_REMOTE stuurt QUERY_NETWORK (0x0D)
+2. MAIN_UNIT antwoordt met FAN_SETTINGS (0x07)
+3. RF_REMOTE stuurt SETSPEED (0x02) met preset 4
+4. MAIN_UNIT bevestigt met FAN_SETTINGS
+5. RF_REMOTE stuurt SETTIMER (0x14) naar MAIN_CONTROL
+6. MAIN_CONTROL broadcast STATUS_BROADCAST (0x15) met timer=ON
