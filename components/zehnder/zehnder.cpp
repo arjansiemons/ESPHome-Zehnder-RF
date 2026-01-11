@@ -165,29 +165,13 @@ void ZehnderRF::setup() {
 
   this->speed_count_ = 4;  // 4 speeds: Presets 1-4 (HA can also turn OFF with preset 0)
 
-  // === CRITICAL: Call nRF905 setup() and configure RF BEFORE callbacks ===
+  // === CRITICAL: Call nRF905 setup() FIRST ===
   ESP_LOGE(TAG, ">>> CALLING nRF905 setup() to initialize hardware...");
   this->rf_->setup();
   ESP_LOGE(TAG, ">>> nRF905 hardware initialized");
 
-  ESP_LOGE(TAG, ">>> Configuring device identity and RF parameters...");
-
-  // If no valid config was loaded, use our known-good defaults
-  if (!config_loaded) {
-    ESP_LOGE(TAG, ">>> No valid config found - using default configuration");
-    // Configure device identity as RF_REMOTE (type 0x0F) - same as bathroom remote
-    this->config_.fan_networkId = 0xFE75FD9B;
-    this->config_.fan_my_device_type = FAN_TYPE_RF_REMOTE;  // 0x0F (like bathroom remote)
-    this->config_.fan_my_device_id = 0xE7;  // Random ID
-    this->config_.fan_main_unit_type = FAN_TYPE_MAIN_UNIT;  // 0x01 - Commands go to MAIN_UNIT!
-    this->config_.fan_main_unit_id = 0x39;  // Main unit ID
-  }
-
-  ESP_LOGE(TAG, ">>> Device configured as RF_REMOTE (0x0F) with ID 0x%02X", this->config_.fan_my_device_id);
-  ESP_LOGE(TAG, ">>> Target: MAIN_UNIT (0x01) with ID 0x%02X", this->config_.fan_main_unit_id);
-
-  // Override nRF905 config with correct BOXSTREAM settings
-  // Use FULL config like manual_init() does - this is critical!
+  // === Configure RF parameters BEFORE device config (exact manual_init order!) ===
+  ESP_LOGE(TAG, ">>> Configuring nRF905 for BOXSTREAM network...");
   nrf905::Config rfConfig = this->rf_->getConfig();
   rfConfig.band = true;
   rfConfig.channel = 117;  // 868.2 MHz for BOXSTREAM/BUVA
@@ -206,46 +190,45 @@ void ZehnderRF::setup() {
 
   this->rf_->updateConfig(&rfConfig);
   this->rf_->writeTxAddress(0xFE75FD9B);
-  ESP_LOGE(TAG, ">>> nRF905 fully configured for BOXSTREAM network");
+  ESP_LOGE(TAG, ">>> nRF905 fully configured");
 
-  // === Register callbacks - BOTH TX and RX needed! ===
-  this->rf_->setOnTxReady([this](void) {
-    ESP_LOGE(TAG, "TX Ready callback fired!");
-    if (this->rfState_ == RfStateTxBusy) {
-      if (this->retries_ >= 0) {
-        this->msgSendTime_ = millis();
-        this->rfState_ = RfStateRxWait;
-        ESP_LOGE(TAG, "  State: TxBusy → RxWait");
-      } else {
-        this->rfState_ = RfStateIdle;
-        ESP_LOGE(TAG, "  State: TxBusy → Idle (no retries)");
-      }
-    }
-  });
+  // === NOW configure device identity AFTER RF config (manual_init order!) ===
+  ESP_LOGE(TAG, ">>> Configuring device identity...");
 
+  this->speed_count_ = 4;  // 4 speeds: Presets 1-4 (HA can also turn OFF with preset 0)
+
+  // If no valid config was loaded, use our known-good defaults
+  if (!config_loaded) {
+    ESP_LOGE(TAG, ">>> No valid config found - using default configuration");
+    this->config_.fan_networkId = 0xFE75FD9B;
+    this->config_.fan_my_device_type = FAN_TYPE_RF_REMOTE;  // 0x0F (like bathroom remote)
+    this->config_.fan_my_device_id = 0xE7;  // Random ID
+    this->config_.fan_main_unit_type = FAN_TYPE_MAIN_UNIT;  // 0x01 - Commands go to MAIN_UNIT!
+    this->config_.fan_main_unit_id = 0x39;  // Main unit ID
+  }
+
+  ESP_LOGE(TAG, ">>> Device: RF_REMOTE (0x0F) ID=0x%02X → Target: MAIN_UNIT (0x01) ID=0x%02X",
+           this->config_.fan_my_device_id, this->config_.fan_main_unit_id);
+
+  // === Register ONLY RX callback like manual_init() does ===
   this->rf_->setOnRxComplete([this](const uint8_t *const pData, const uint8_t dataLength) {
     ESP_LOGE(TAG, "!!! RX CALLBACK - FRAME RECEIVED !!!");
     this->rfHandleReceived(pData, dataLength);
   });
-  ESP_LOGE(TAG, ">>> TX and RX Callbacks registered");
+  ESP_LOGE(TAG, ">>> RX Callback registered");
 
-  // Enable promiscuous mode to receive all broadcasts (STATUS_BROADCAST, etc.)
+  // Enable promiscuous mode (like manual_init)
   this->rf_->setPromiscuousMode(true);
   ESP_LOGE(TAG, ">>> Promiscuous mode enabled");
 
-  // Initialize fan state to OFF and publish to Home Assistant BEFORE starting receive
+  // Start in receive mode (like manual_init - no delay, no publish before this)
+  this->rf_->setMode(nrf905::Receive);
+  ESP_LOGE(TAG, ">>> nRF905 set to RECEIVE mode");
+
+  // Initialize fan state AFTER starting receive (different from manual_init but needed for HA)
   this->state = false;
   this->speed = 0;
   this->publish_state();
-
-  // Add delay to allow API connection so we can see setup logs
-  ESP_LOGE(TAG, ">>> Waiting 2 seconds for API to connect...");
-  delay(2000);
-  ESP_LOGE(TAG, ">>> Wait complete, starting receive mode...");
-
-  // Start in receive mode - do this LAST
-  this->rf_->setMode(nrf905::Receive);
-  ESP_LOGE(TAG, ">>> nRF905 set to RECEIVE mode");
 
   // Decide whether to pair or go straight to Idle
   if (config_loaded) {
