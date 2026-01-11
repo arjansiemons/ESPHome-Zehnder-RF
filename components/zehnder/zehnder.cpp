@@ -135,14 +135,17 @@ void ZehnderRF::setup() {
     ESP_LOGW(TAG, "  Main Type: 0x%02X, Main ID: 0x%02X", this->config_.fan_main_unit_type, this->config_.fan_main_unit_id);
 
     // Check if config looks valid (paired)
+    // IMPORTANT: main_unit_type must be MAIN_CONTROL (0x0E), not MAIN_UNIT (0x01)!
     if (this->config_.fan_networkId == 0xFE75FD9B &&
         this->config_.fan_my_device_type == FAN_TYPE_RF_REMOTE &&
         this->config_.fan_my_device_id != 0 &&
+        this->config_.fan_main_unit_type == FAN_TYPE_MAIN_CONTROL &&
         this->config_.fan_main_unit_id != 0) {
       config_loaded = true;
       ESP_LOGW(TAG, "✓ Valid pairing configuration found - will skip auto-pairing");
     } else {
       ESP_LOGW(TAG, "✗ Pairing config invalid or incomplete - will auto-pair");
+      ESP_LOGW(TAG, "  (Note: Old configs with MAIN_UNIT target will be re-paired to MAIN_CONTROL)");
     }
   }
 
@@ -185,12 +188,12 @@ void ZehnderRF::setup() {
     this->config_.fan_networkId = 0xFE75FD9B;
     this->config_.fan_my_device_type = FAN_TYPE_RF_REMOTE;  // 0x0F (like bathroom remote)
     this->config_.fan_my_device_id = 0xE7;  // Random ID
-    this->config_.fan_main_unit_type = FAN_TYPE_MAIN_UNIT;  // 0x01
-    this->config_.fan_main_unit_id = 0x39;  // Main unit ID from protocol analysis
+    this->config_.fan_main_unit_type = FAN_TYPE_MAIN_CONTROL;  // 0x0E - RF_REMOTE targets MAIN_CONTROL!
+    this->config_.fan_main_unit_id = 0x39;  // Main control ID from protocol analysis
   }
 
   ESP_LOGI(TAG, "Device configured as RF_REMOTE (0x0F) with ID 0x%02X", this->config_.fan_my_device_id);
-  ESP_LOGI(TAG, "Target: MAIN_UNIT (0x01) with ID 0x%02X", this->config_.fan_main_unit_id);
+  ESP_LOGI(TAG, "Target: MAIN_CONTROL (0x0E) with ID 0x%02X", this->config_.fan_main_unit_id);
 
   // Override nRF905 config with correct BOXSTREAM settings
   // (nRF905::setup() sets wrong defaults for Zehnder network)
@@ -281,11 +284,11 @@ void ZehnderRF::manual_init() {
   this->config_.fan_networkId = 0xFE75FD9B;
   this->config_.fan_my_device_type = FAN_TYPE_RF_REMOTE;  // 0x0F (like bathroom remote)
   this->config_.fan_my_device_id = 0xE7;  // Random ID (avoid 0x39 and 0xD7)
-  this->config_.fan_main_unit_type = FAN_TYPE_MAIN_UNIT;  // 0x01
-  this->config_.fan_main_unit_id = 0x39;  // Main unit ID (seen in logs)
+  this->config_.fan_main_unit_type = FAN_TYPE_MAIN_CONTROL;  // 0x0E - RF_REMOTE targets MAIN_CONTROL!
+  this->config_.fan_main_unit_id = 0x39;  // Main control ID (seen in logs)
 
   ESP_LOGE(TAG, "Device configured as RF_REMOTE (0x0F) with ID 0x%02X", this->config_.fan_my_device_id);
-  ESP_LOGE(TAG, "Target: MAIN_UNIT (0x01) with ID 0x%02X", this->config_.fan_main_unit_id);
+  ESP_LOGE(TAG, "Target: MAIN_CONTROL (0x0E) with ID 0x%02X", this->config_.fan_main_unit_id);
 
   this->rf_->setOnRxComplete([this](const uint8_t *const pData, const uint8_t dataLength) {
     ESP_LOGE(TAG, "!!! RX CALLBACK - FRAME RECEIVED !!!");
