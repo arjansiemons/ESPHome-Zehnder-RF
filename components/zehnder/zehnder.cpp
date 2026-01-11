@@ -112,8 +112,18 @@ void ZehnderRF::setup() {
 
   uint32_t hash = fnv1_hash("zehnderrf");
   this->pref_ = global_preferences->make_preference<Config>(hash, true);
+  bool config_loaded = false;
   if (this->pref_.load(&this->config_)) {
-    ESP_LOGW(TAG, "Config load ok");
+    ESP_LOGW(TAG, "Config loaded from preferences:");
+    ESP_LOGW(TAG, "  Network ID: 0x%08X", this->config_.fan_networkId);
+    ESP_LOGW(TAG, "  My Type: 0x%02X, My ID: 0x%02X", this->config_.fan_my_device_type, this->config_.fan_my_device_id);
+    ESP_LOGW(TAG, "  Main Type: 0x%02X, Main ID: 0x%02X", this->config_.fan_main_unit_type, this->config_.fan_main_unit_id);
+
+    // Check if config looks valid (paired)
+    if (this->config_.fan_networkId != 0 && this->config_.fan_my_device_id != 0) {
+      config_loaded = true;
+      ESP_LOGW(TAG, "Valid pairing configuration found - will skip auto-pairing");
+    }
   }
 
   ESP_LOGI(TAG, "Checking nRF905 component...");
@@ -148,12 +158,16 @@ void ZehnderRF::setup() {
 
   ESP_LOGI(TAG, "Configuring device identity and RF parameters...");
 
-  // Configure device identity as RF_REMOTE (type 0x0F) - same as bathroom remote
-  this->config_.fan_networkId = 0xFE75FD9B;
-  this->config_.fan_my_device_type = FAN_TYPE_RF_REMOTE;  // 0x0F (like bathroom remote)
-  this->config_.fan_my_device_id = 0xE7;  // Random ID
-  this->config_.fan_main_unit_type = FAN_TYPE_MAIN_UNIT;  // 0x01
-  this->config_.fan_main_unit_id = 0x39;  // Main unit ID from protocol analysis
+  // If no valid config was loaded, use our known-good defaults
+  if (!config_loaded) {
+    ESP_LOGI(TAG, "No valid config found - using default configuration");
+    // Configure device identity as RF_REMOTE (type 0x0F) - same as bathroom remote
+    this->config_.fan_networkId = 0xFE75FD9B;
+    this->config_.fan_my_device_type = FAN_TYPE_RF_REMOTE;  // 0x0F (like bathroom remote)
+    this->config_.fan_my_device_id = 0xE7;  // Random ID
+    this->config_.fan_main_unit_type = FAN_TYPE_MAIN_UNIT;  // 0x01
+    this->config_.fan_main_unit_id = 0x39;  // Main unit ID from protocol analysis
+  }
 
   ESP_LOGI(TAG, "Device configured as RF_REMOTE (0x0F) with ID 0x%02X", this->config_.fan_my_device_id);
   ESP_LOGI(TAG, "Target: MAIN_UNIT (0x01) with ID 0x%02X", this->config_.fan_main_unit_id);
@@ -178,17 +192,28 @@ void ZehnderRF::setup() {
   this->rf_->setMode(nrf905::Receive);
   ESP_LOGI(TAG, "nRF905 set to RECEIVE mode");
 
-  // Set state to Idle so fan control works immediately
-  this->state_ = StateIdle;
-
   // Initialize fan state to OFF and publish to Home Assistant
   this->state = false;
   this->speed = 0;
   this->publish_state();
 
-  ESP_LOGI(TAG, "========================================");
-  ESP_LOGI(TAG, "ZEHNDER FAN READY - Fan control enabled!");
-  ESP_LOGI(TAG, "========================================");
+  // Decide whether to pair or go straight to Idle
+  if (config_loaded) {
+    // Already paired - go straight to Idle for immediate fan control
+    this->state_ = StateIdle;
+    ESP_LOGI(TAG, "========================================");
+    ESP_LOGI(TAG, "ZEHNDER FAN READY - Already paired!");
+    ESP_LOGI(TAG, "Fan control enabled immediately");
+    ESP_LOGI(TAG, "========================================");
+  } else {
+    // Not paired yet - start pairing sequence in loop()
+    this->state_ = StateStartup;
+    ESP_LOGI(TAG, "========================================");
+    ESP_LOGI(TAG, "ZEHNDER FAN SETUP COMPLETE");
+    ESP_LOGI(TAG, "Will automatically pair with fan after 5 seconds...");
+    ESP_LOGI(TAG, "========================================");
+  }
+
   this->initialized_ = true;
 }
 
@@ -429,6 +454,11 @@ void ZehnderRF::pair_as_remote() {
   }
 
   ESP_LOGE(TAG, "Promiscuous mode re-enabled");
+
+  // Save pairing configuration to preferences
+  ESP_LOGE(TAG, "Saving pairing configuration to flash...");
+  this->pref_.save(&this->config_);
+  ESP_LOGE(TAG, "Configuration saved - device will remember pairing after reboot");
 }
 
 void ZehnderRF::dump_config(void) {
@@ -461,16 +491,19 @@ void ZehnderRF::loop(void) {
     case StateStartup:
       // Wait until started up
       if (millis() > 5000) {
-        // === DEBUG MODE: PASSIVE LISTENING ===
-        ESP_LOGW(TAG, "========================================");
-        ESP_LOGW(TAG, "DEBUG MODE: Passive RF Sniffer Active");
-        ESP_LOGW(TAG, "Listening on 868.2 MHz (Channel 117)");
-        ESP_LOGW(TAG, "Network Address: 0xFE75FD9B");
-        ESP_LOGW(TAG, "All received RF frames will be logged");
-        ESP_LOGW(TAG, "========================================");
+        ESP_LOGE(TAG, "========================================");
+        ESP_LOGE(TAG, "AUTOMATIC PAIRING: Starting pairing sequence");
+        ESP_LOGE(TAG, "========================================");
 
-        // Stay in idle mode, just listen
+        // Automatically execute pairing sequence
+        this->pair_as_remote();
+
+        // After pairing, go to Idle
         this->state_ = StateIdle;
+
+        ESP_LOGE(TAG, "========================================");
+        ESP_LOGE(TAG, "PAIRING COMPLETE - Fan control ready!");
+        ESP_LOGE(TAG, "========================================");
       }
       break;
 
