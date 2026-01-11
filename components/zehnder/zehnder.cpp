@@ -208,12 +208,26 @@ void ZehnderRF::setup() {
   this->rf_->writeTxAddress(0xFE75FD9B);
   ESP_LOGE(TAG, ">>> nRF905 fully configured for BOXSTREAM network");
 
-  // === NOW register RX callback AFTER RF config (DON'T register TX callback - breaks things!) ===
+  // === Register callbacks - BOTH TX and RX needed! ===
+  this->rf_->setOnTxReady([this](void) {
+    ESP_LOGE(TAG, "TX Ready callback fired!");
+    if (this->rfState_ == RfStateTxBusy) {
+      if (this->retries_ >= 0) {
+        this->msgSendTime_ = millis();
+        this->rfState_ = RfStateRxWait;
+        ESP_LOGE(TAG, "  State: TxBusy → RxWait");
+      } else {
+        this->rfState_ = RfStateIdle;
+        ESP_LOGE(TAG, "  State: TxBusy → Idle (no retries)");
+      }
+    }
+  });
+
   this->rf_->setOnRxComplete([this](const uint8_t *const pData, const uint8_t dataLength) {
     ESP_LOGE(TAG, "!!! RX CALLBACK - FRAME RECEIVED !!!");
     this->rfHandleReceived(pData, dataLength);
   });
-  ESP_LOGE(TAG, ">>> RX Callback registered");
+  ESP_LOGE(TAG, ">>> TX and RX Callbacks registered");
 
   // Enable promiscuous mode to receive all broadcasts (STATUS_BROADCAST, etc.)
   this->rf_->setPromiscuousMode(true);
