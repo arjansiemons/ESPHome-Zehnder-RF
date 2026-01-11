@@ -94,8 +94,9 @@ class nRF905 : public Component,
 
   void setup() override;
 
-  // float get_setup_priority() const override { return setup_priority::HARDWARE; }
-  float get_setup_priority() const override { return setup_priority::AFTER_CONNECTION; }
+  // nRF905 must run BEFORE ZehnderRF (which is at DATA-1 = 599)
+  // Higher priority number = runs FIRST in ESPHome
+  float get_setup_priority() const override { return setup_priority::DATA; }  // 600.0 - runs before ZehnderRF
 
   void dump_config() override;
   void loop() override;

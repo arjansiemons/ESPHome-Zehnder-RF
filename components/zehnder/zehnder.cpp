@@ -119,8 +119,8 @@ void ZehnderRF::control(const fan::FanCall &call) {
 void ZehnderRF::setup() {
   ESP_LOGE(TAG, "========================================");
   ESP_LOGE(TAG, "!!! ZEHNDER SETUP() CALLED !!!");
-  ESP_LOGE(TAG, "Setup priority: %.1f (nRF905 is at 400.0, DATA is 600.0)", this->get_setup_priority());
-  ESP_LOGE(TAG, "This ensures we run AFTER nRF905::setup() completes");
+  ESP_LOGE(TAG, "Setup priority: %.1f (nRF905 is at 600.0)", this->get_setup_priority());
+  ESP_LOGE(TAG, "nRF905::setup() already completed (higher priority runs first)");
   ESP_LOGE(TAG, "========================================");
 
   // Clear config
@@ -165,7 +165,9 @@ void ZehnderRF::setup() {
 
   this->speed_count_ = 4;  // 4 speeds: Presets 1-4 (HA can also turn OFF with preset 0)
 
-  // === Register TX callback BEFORE calling rf_->setup() ===
+  // === Register TX callback ===
+  // Note: nRF905::setup() runs BEFORE this (priority 600 vs 599)
+  // So hardware is already initialized by ESPHome
   this->rf_->setOnTxReady([this](void) {
     ESP_LOGD(TAG, "Tx Ready");
     if (this->rfState_ == RfStateTxBusy) {
@@ -177,12 +179,7 @@ void ZehnderRF::setup() {
       }
     }
   });
-  ESP_LOGE(TAG, ">>> TX Callback registered (before rf_->setup())");
-
-  // === CRITICAL: Call nRF905 setup() AFTER TX callback ===
-  ESP_LOGE(TAG, ">>> CALLING nRF905 setup() to initialize hardware...");
-  this->rf_->setup();
-  ESP_LOGE(TAG, ">>> nRF905 hardware initialized");
+  ESP_LOGE(TAG, ">>> TX Callback registered");
 
   // === Configure RF parameters BEFORE device config (exact manual_init order!) ===
   ESP_LOGE(TAG, ">>> Configuring nRF905 for BOXSTREAM network...");
