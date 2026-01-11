@@ -217,12 +217,23 @@ this->rf_->setOnRxComplete(...);  // ← DAN callbacks registreren
 
 Dit is exact wat manual_init() doet en dat werkt perfect!
 
+## Test Resultaten Fix #3 (commit ab38346)
+
+### ❌ WERKT NOG STEEDS NIET
+Gebruiker rapporteert: nog steeds hetzelfde probleem, setup logs niet zichtbaar.
+
+**Mogelijk probleem:**
+De firmware upload gaat te snel en we zien setup() logs niet omdat die VOOR API verbinding gebeuren.
+
+### Debug Strategie
+1. Vraag gebruiker om VOLLEDIGE logs vanaf boot
+2. Check of setup() überhaupt wordt aangeroepen
+3. Check of er compiler errors zijn
+4. Mogelijk: voeg delay toe NA setup() zodat logs zichtbaar zijn
+5. Of: gebruik ESP_LOGE ipv ESP_LOGI voor setup logs (ERROR level altijd zichtbaar)
+
 ## Volgende Acties
-- [x] Log analyse gedaan - probleem geïdentificeerd
-- [x] Fix #1 geïmplementeerd (MAIN_CONTROL → MAIN_UNIT target)
-- [x] Fix #1 getest - werkt met Manual Init
-- [x] Setup priority probleem gevonden
-- [x] Fix #2 geïmplementeerd (setup priority aangepast)
-- [x] Fix #2 getest - WERKT NOG NIET
-- [ ] Fix #3: Expliciet rf_->setup() aanroepen in setup()
-- [ ] Testen of dit het probleem oplost
+- [x] Fix #3 geïmplementeerd
+- [ ] Logs van gebruiker opvragen
+- [ ] Verificeren dat firmware correct gecompileerd is
+- [ ] Mogelijk: ESP_LOGE gebruiken voor alle setup logs

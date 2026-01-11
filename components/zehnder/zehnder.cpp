@@ -151,21 +151,21 @@ void ZehnderRF::setup() {
     }
   }
 
-  ESP_LOGI(TAG, "Checking nRF905 component...");
+  ESP_LOGE(TAG, "Checking nRF905 component...");
   if (this->rf_ == nullptr) {
     ESP_LOGE(TAG, "ERROR: nRF905 component is NULL! Cannot continue setup.");
     return;
   }
-  ESP_LOGI(TAG, "nRF905 component OK");
+  ESP_LOGE(TAG, "nRF905 component OK");
 
   this->speed_count_ = 4;  // 4 speeds: Presets 1-4 (HA can also turn OFF with preset 0)
 
   // === CRITICAL: Call nRF905 setup() BEFORE registering callbacks ===
   // This initializes the GPIO pins and hardware.
   // ESPHome does NOT automatically call setup() on referenced components!
-  ESP_LOGI(TAG, "Calling nRF905 setup() to initialize hardware...");
+  ESP_LOGE(TAG, ">>> CALLING nRF905 setup() to initialize hardware...");
   this->rf_->setup();
-  ESP_LOGI(TAG, "nRF905 hardware initialized");
+  ESP_LOGE(TAG, ">>> nRF905 hardware initialized - callbacks will be registered next");
 
   // Now register callbacks AFTER hardware is initialized
   this->rf_->setOnTxReady([this](void) {
@@ -185,11 +185,11 @@ void ZehnderRF::setup() {
     this->rfHandleReceived(pData, dataLength);
   });
 
-  ESP_LOGI(TAG, "Configuring device identity and RF parameters...");
+  ESP_LOGE(TAG, ">>> Configuring device identity and RF parameters...");
 
   // If no valid config was loaded, use our known-good defaults
   if (!config_loaded) {
-    ESP_LOGI(TAG, "No valid config found - using default configuration");
+    ESP_LOGE(TAG, ">>> No valid config found - using default configuration");
     // Configure device identity as RF_REMOTE (type 0x0F) - same as bathroom remote
     this->config_.fan_networkId = 0xFE75FD9B;
     this->config_.fan_my_device_type = FAN_TYPE_RF_REMOTE;  // 0x0F (like bathroom remote)
@@ -198,8 +198,8 @@ void ZehnderRF::setup() {
     this->config_.fan_main_unit_id = 0x39;  // Main unit ID
   }
 
-  ESP_LOGI(TAG, "Device configured as RF_REMOTE (0x0F) with ID 0x%02X", this->config_.fan_my_device_id);
-  ESP_LOGI(TAG, "Target: MAIN_UNIT (0x01) with ID 0x%02X", this->config_.fan_main_unit_id);
+  ESP_LOGE(TAG, ">>> Device configured as RF_REMOTE (0x0F) with ID 0x%02X", this->config_.fan_my_device_id);
+  ESP_LOGE(TAG, ">>> Target: MAIN_UNIT (0x01) with ID 0x%02X", this->config_.fan_main_unit_id);
 
   // Override nRF905 config with correct BOXSTREAM settings
   // (nRF905::setup() sets wrong defaults for Zehnder network)
@@ -211,15 +211,15 @@ void ZehnderRF::setup() {
   rfConfig.tx_power = 10;
   this->rf_->updateConfig(&rfConfig);
   this->rf_->writeTxAddress(0xFE75FD9B);
-  ESP_LOGI(TAG, "nRF905 reconfigured for BOXSTREAM network (868.2 MHz, addr 0xFE75FD9B)");
+  ESP_LOGE(TAG, ">>> nRF905 reconfigured for BOXSTREAM network (868.2 MHz, addr 0xFE75FD9B)");
 
   // Enable promiscuous mode to receive all broadcasts (STATUS_BROADCAST, etc.)
   this->rf_->setPromiscuousMode(true);
-  ESP_LOGI(TAG, "Promiscuous mode enabled - will receive broadcasts from all devices");
+  ESP_LOGE(TAG, ">>> Promiscuous mode enabled - will receive broadcasts from all devices");
 
   // Start in receive mode
   this->rf_->setMode(nrf905::Receive);
-  ESP_LOGI(TAG, "nRF905 set to RECEIVE mode");
+  ESP_LOGE(TAG, ">>> nRF905 set to RECEIVE mode");
 
   // Initialize fan state to OFF and publish to Home Assistant
   this->state = false;
