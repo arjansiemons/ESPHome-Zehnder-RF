@@ -163,7 +163,7 @@ void ZehnderRF::setup() {
   }
   ESP_LOGE(TAG, "nRF905 component OK");
 
-  this->speed_count_ = 5;  // 5 speeds: Presets 1-5 (OFF = preset 0)
+  this->speed_count_ = 4;  // 4 speeds: Presets 1-4 (OFF = preset 0)
 
   // === Register TX callback ===
   // Note: nRF905::setup() runs BEFORE this (priority 600 vs 599)
@@ -206,7 +206,7 @@ void ZehnderRF::setup() {
   // === NOW configure device identity AFTER RF config (manual_init order!) ===
   ESP_LOGE(TAG, ">>> Configuring device identity...");
 
-  this->speed_count_ = 5;  // 5 speeds: Presets 1-5 (OFF = preset 0)
+  this->speed_count_ = 4;  // 4 speeds: Presets 1-4 (OFF = preset 0)
 
   // If no valid config was loaded, use our known-good defaults
   if (!config_loaded) {
@@ -302,7 +302,7 @@ void ZehnderRF::manual_init() {
   this->rf_->updateConfig(&rfConfig);
   this->rf_->writeTxAddress(0xFE75FD9B);
 
-  this->speed_count_ = 5;  // 5 speeds: Presets 1-5 (OFF = preset 0)
+  this->speed_count_ = 4;  // 4 speeds: Presets 1-4 (OFF = preset 0)
 
   // Configure device identity as RF_REMOTE (type 0x0F) - same as bathroom remote
   this->config_.fan_networkId = 0xFE75FD9B;
