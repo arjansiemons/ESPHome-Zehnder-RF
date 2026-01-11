@@ -160,30 +160,10 @@ void ZehnderRF::setup() {
 
   this->speed_count_ = 4;  // 4 speeds: Presets 1-4 (HA can also turn OFF with preset 0)
 
-  // === CRITICAL: Call nRF905 setup() BEFORE registering callbacks ===
-  // This initializes the GPIO pins and hardware.
-  // ESPHome does NOT automatically call setup() on referenced components!
+  // === CRITICAL: Call nRF905 setup() and configure RF BEFORE callbacks ===
   ESP_LOGE(TAG, ">>> CALLING nRF905 setup() to initialize hardware...");
   this->rf_->setup();
-  ESP_LOGE(TAG, ">>> nRF905 hardware initialized - callbacks will be registered next");
-
-  // Now register callbacks AFTER hardware is initialized
-  this->rf_->setOnTxReady([this](void) {
-    ESP_LOGD(TAG, "Tx Ready");
-    if (this->rfState_ == RfStateTxBusy) {
-      if (this->retries_ >= 0) {
-        this->msgSendTime_ = millis();
-        this->rfState_ = RfStateRxWait;
-      } else {
-        this->rfState_ = RfStateIdle;
-      }
-    }
-  });
-
-  this->rf_->setOnRxComplete([this](const uint8_t *const pData, const uint8_t dataLength) {
-    ESP_LOGI(TAG, "!!! RX CALLBACK - FRAME RECEIVED !!!");
-    this->rfHandleReceived(pData, dataLength);
-  });
+  ESP_LOGE(TAG, ">>> nRF905 hardware initialized");
 
   ESP_LOGE(TAG, ">>> Configuring device identity and RF parameters...");
 
@@ -202,20 +182,49 @@ void ZehnderRF::setup() {
   ESP_LOGE(TAG, ">>> Target: MAIN_UNIT (0x01) with ID 0x%02X", this->config_.fan_main_unit_id);
 
   // Override nRF905 config with correct BOXSTREAM settings
-  // (nRF905::setup() sets wrong defaults for Zehnder network)
+  // Use FULL config like manual_init() does - this is critical!
   nrf905::Config rfConfig = this->rf_->getConfig();
-  rfConfig.channel = 117;  // 868.2 MHz for BOXSTREAM/BUVA (not 118)
-  rfConfig.rx_address = 0xFE75FD9B;  // BOXSTREAM network (not 0x89816EA9)
+  rfConfig.band = true;
+  rfConfig.channel = 117;  // 868.2 MHz for BOXSTREAM/BUVA
   rfConfig.crc_enable = true;
   rfConfig.crc_bits = 16;
   rfConfig.tx_power = 10;
+  rfConfig.rx_power = nrf905::PowerNormal;
+  rfConfig.rx_address = 0xFE75FD9B;  // BOXSTREAM network
+  rfConfig.rx_address_width = 4;
+  rfConfig.rx_payload_width = 16;
+  rfConfig.tx_address_width = 4;
+  rfConfig.tx_payload_width = 16;
+  rfConfig.xtal_frequency = 16000000;
+  rfConfig.clkOutFrequency = nrf905::ClkOut500000;
+  rfConfig.clkOutEnable = false;
+
   this->rf_->updateConfig(&rfConfig);
   this->rf_->writeTxAddress(0xFE75FD9B);
-  ESP_LOGE(TAG, ">>> nRF905 reconfigured for BOXSTREAM network (868.2 MHz, addr 0xFE75FD9B)");
+  ESP_LOGE(TAG, ">>> nRF905 fully configured for BOXSTREAM network");
+
+  // === NOW register callbacks AFTER RF config is complete ===
+  this->rf_->setOnTxReady([this](void) {
+    ESP_LOGD(TAG, "Tx Ready");
+    if (this->rfState_ == RfStateTxBusy) {
+      if (this->retries_ >= 0) {
+        this->msgSendTime_ = millis();
+        this->rfState_ = RfStateRxWait;
+      } else {
+        this->rfState_ = RfStateIdle;
+      }
+    }
+  });
+
+  this->rf_->setOnRxComplete([this](const uint8_t *const pData, const uint8_t dataLength) {
+    ESP_LOGI(TAG, "!!! RX CALLBACK - FRAME RECEIVED !!!");
+    this->rfHandleReceived(pData, dataLength);
+  });
+  ESP_LOGE(TAG, ">>> Callbacks registered");
 
   // Enable promiscuous mode to receive all broadcasts (STATUS_BROADCAST, etc.)
   this->rf_->setPromiscuousMode(true);
-  ESP_LOGE(TAG, ">>> Promiscuous mode enabled - will receive broadcasts from all devices");
+  ESP_LOGE(TAG, ">>> Promiscuous mode enabled");
 
   // Start in receive mode
   this->rf_->setMode(nrf905::Receive);
