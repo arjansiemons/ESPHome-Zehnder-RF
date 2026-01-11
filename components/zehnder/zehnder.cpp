@@ -226,6 +226,11 @@ void ZehnderRF::setup() {
   this->speed = 0;
   this->publish_state();
 
+  // Add a small delay to allow time for API connection before continuing
+  ESP_LOGE(TAG, ">>> Waiting 2 seconds for API to connect...");
+  delay(2000);
+  ESP_LOGE(TAG, ">>> Wait complete, continuing setup...");
+
   // Decide whether to pair or go straight to Idle
   if (config_loaded) {
     // Already paired - go straight to Idle for immediate fan control
@@ -515,6 +520,12 @@ void ZehnderRF::pair_as_remote() {
 
 void ZehnderRF::dump_config(void) {
   ESP_LOGE(TAG, "!!! dump_config() CALLED !!!");
+  ESP_LOGE(TAG, "========================================");
+  ESP_LOGE(TAG, "SETUP STATUS CHECK:");
+  ESP_LOGE(TAG, "  initialized_ flag: %s", this->initialized_ ? "TRUE" : "FALSE");
+  ESP_LOGE(TAG, "  Current state_: 0x%02X", this->state_);
+  ESP_LOGE(TAG, "  nRF905 pointer: %p", this->rf_);
+  ESP_LOGE(TAG, "========================================");
   ESP_LOGCONFIG(TAG, "Zehnder Fan config:");
   ESP_LOGCONFIG(TAG, "  Polling interval   %u", this->interval_);
   ESP_LOGCONFIG(TAG, "  Fan networkId      0x%08X", this->config_.fan_networkId);
@@ -522,6 +533,7 @@ void ZehnderRF::dump_config(void) {
   ESP_LOGCONFIG(TAG, "  Fan my device id   0x%02X", this->config_.fan_my_device_id);
   ESP_LOGCONFIG(TAG, "  Fan main_unit type 0x%02X", this->config_.fan_main_unit_type);
   ESP_LOGCONFIG(TAG, "  Fan main unit id   0x%02X", this->config_.fan_main_unit_id);
+  ESP_LOGE(TAG, "========================================");
 }
 
 void ZehnderRF::loop(void) {
