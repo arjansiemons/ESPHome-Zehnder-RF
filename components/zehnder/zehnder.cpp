@@ -244,9 +244,12 @@ void ZehnderRF::setup() {
   if (config_loaded) {
     // Already paired - go straight to Idle for immediate fan control
     this->state_ = StateIdle;
+    this->startup_time_ = millis();  // Record when we became ready
+    this->initial_query_done_ = false;  // Will query fan status after short delay
     ESP_LOGE(TAG, "========================================");
     ESP_LOGE(TAG, "ZEHNDER FAN READY - Already paired!");
     ESP_LOGE(TAG, "Fan control enabled immediately");
+    ESP_LOGE(TAG, "Will query fan status in 2 seconds...");
     ESP_LOGE(TAG, "Current target: Type=0x%02X, ID=0x%02X",
              this->config_.fan_main_unit_type, this->config_.fan_main_unit_id);
     ESP_LOGE(TAG, "========================================");
@@ -571,11 +574,14 @@ void ZehnderRF::loop(void) {
         // Automatically execute pairing sequence
         this->pair_as_remote();
 
-        // After pairing, go to Idle
+        // After pairing, go to Idle and schedule status query
         this->state_ = StateIdle;
+        this->startup_time_ = millis();
+        this->initial_query_done_ = false;
 
         ESP_LOGE(TAG, "========================================");
         ESP_LOGE(TAG, "PAIRING COMPLETE - Fan control ready!");
+        ESP_LOGE(TAG, "Will query fan status in 2 seconds...");
         ESP_LOGE(TAG, "========================================");
       }
       break;
@@ -588,13 +594,18 @@ void ZehnderRF::loop(void) {
       break;
 
     case StateIdle:
-      // === DEBUG MODE: Just listen, don't query ===
-      // In debug mode we just passively receive, no queries
+      // Query fan status once after startup (2 second delay to let RF settle)
+      if (!this->initial_query_done_ && this->startup_time_ > 0 &&
+          (millis() - this->startup_time_ > 2000)) {
+        ESP_LOGI(TAG, "Querying fan for current status...");
+        this->queryDevice();
+        this->initial_query_done_ = true;
+      }
+
+      // Handle pending speed changes
       if (newSetting == true) {
-        // If user manually requests speed change, we could try it
         this->setSpeed(newSpeed, newTimer);
       }
-      // Don't auto-query in debug mode
       break;
 
     case StateWaitSetSpeedConfirm:

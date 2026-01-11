@@ -148,6 +148,8 @@ class ZehnderRF : public Component, public fan::Fan {
   bool newSetting{false};
 
   bool initialized_{false};  // Workaround: track if we've initialized in loop()
+  bool initial_query_done_{false};  // Track if we've queried fan status after boot
+  uint32_t startup_time_{0};  // Time when we entered Idle state
 
   typedef enum {
     RfStateIdle,            // Idle state
