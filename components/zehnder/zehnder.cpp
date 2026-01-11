@@ -119,7 +119,8 @@ void ZehnderRF::control(const fan::FanCall &call) {
 void ZehnderRF::setup() {
   ESP_LOGE(TAG, "========================================");
   ESP_LOGE(TAG, "!!! ZEHNDER SETUP() CALLED !!!");
-  ESP_LOGE(TAG, "Setup priority: %.1f (nRF905 is at 400)", this->get_setup_priority());
+  ESP_LOGE(TAG, "Setup priority: %.1f (nRF905 is at 400.0, DATA is 600.0)", this->get_setup_priority());
+  ESP_LOGE(TAG, "This ensures we run AFTER nRF905::setup() completes");
   ESP_LOGE(TAG, "========================================");
 
   // Clear config

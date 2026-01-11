@@ -129,9 +129,63 @@ this->config_.fan_main_unit_type = FAN_TYPE_MAIN_UNIT;  // 0x01 ← GOED!
 5. Test fan control vanuit Home Assistant
 6. Test of handmatige bediening nog steeds updates geeft naar HA
 
+## Test Resultaten (na e1daae0)
+
+### ✅ WAT WERKT
+- **Fan control HA → fan**: ✅ **WERKT** (alleen na Manual Init button!)
+- **Status updates fan → HA**: ✅ Werken nog steeds
+
+### ❌ WAT NOG NIET WERKT
+- **Automatische setup**: Fan control werkt NIET direct na boot
+- **Pairing**: Werkt niet automatisch
+- **Vereist workaround**: "Manual Init" button moet gedrukt worden
+
+### Analyse: setup() vs manual_init()
+
+**Wat manual_init() WEL doet (en werkt):**
+```cpp
+this->rf_->setup();  // ← Roept nRF905 setup() handmatig aan!
+```
+
+**Wat setup() NIET doet:**
+```cpp
+// NOTE: Do NOT call rf_->setup() - ESPHome calls it automatically!
+// ← Dit commentaar is FOUT! ESPHome roept het blijkbaar NIET aan!
+```
+
+**ECHTE OORZAAK GEVONDEN:**
+Setup priorities waren verkeerd!
+```cpp
+// nRF905: AFTER_CONNECTION (400)
+// Zehnder: AFTER_CONNECTION - 1.0f (399) ← TE LAAG!
+```
+
+Zehnder::setup() liep VOOR nRF905::setup(), dus:
+1. Zehnder registreert callbacks
+2. ESPHome roept nRF905::setup() aan → reset callbacks?
+3. Callbacks werken niet meer!
+
+**FIX**: Zehnder priority verhogen naar DATA - 1.0f (599) zodat het NA nRF905 loopt.
+
+## FIX #2: Setup Priority
+
+### Probleem
+Setup priority was te laag (399), dus Zehnder::setup() liep VOOR nRF905::setup()
+
+### Oplossing
+```cpp
+// Was: setup_priority::AFTER_CONNECTION - 1.0f  (399)
+// Nu:  setup_priority::DATA - 1.0f               (599)
+```
+
+Nu loopt Zehnder::setup() NA nRF905::setup(), dus callbacks blijven werken!
+
 ## Volgende Acties
 - [x] Log analyse gedaan - probleem geïdentificeerd
-- [x] Fix geïmplementeerd (MAIN_CONTROL → MAIN_UNIT target)
+- [x] Fix #1 geïmplementeerd (MAIN_CONTROL → MAIN_UNIT target)
+- [x] Fix #1 getest - werkt met Manual Init
+- [x] Setup priority probleem gevonden
+- [x] Fix #2 geïmplementeerd (setup priority aangepast)
 - [ ] Code committen en pushen
-- [ ] Firmware uploaden en testen
-- [ ] Resultaten documenteren
+- [ ] Firmware uploaden en testen (zonder Manual Init!)
+- [ ] Verifiëren dat automatische pairing werkt
