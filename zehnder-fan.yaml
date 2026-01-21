@@ -70,6 +70,34 @@ fan:
     nrf905: nrf905_rf
     update_interval: "60s"
     restore_mode: RESTORE_DEFAULT_OFF  # Restore previous state on boot
+    on_state:
+      - sensor.template.publish:
+          id: ${devicename}_speed_sensor
+          state: !lambda |-
+            if (x->state) {
+              return x->speed * 25.0;
+            }
+            return 0.0;
+
+# Fan speed sensor for Home Assistant history tracking
+# (Fan entities don't record speed/percentage in history by default)
+sensor:
+  - platform: template
+    name: "${upper_devicename} Speed"
+    id: ${devicename}_speed_sensor
+    unit_of_measurement: "%"
+    state_class: measurement
+    icon: "mdi:fan"
+    accuracy_decimals: 0
+    lambda: |-
+      auto fan_comp = id(${devicename}_fan);
+      if (fan_comp->state) {
+        // Fan ON: speed 1-4 → 25/50/75/100%
+        return fan_comp->speed * 25.0;
+      } else {
+        return 0.0;
+      }
+    update_interval: 60s
 
 # Initialization and diagnostics buttons
 button:
