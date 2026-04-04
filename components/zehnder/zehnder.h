@@ -107,6 +107,7 @@ class ZehnderRF : public Component, public fan::Fan {
     StateStartup,
     StateStartDiscovery,
     StateDiscoveryWaitForLinkRequest,
+    StateDiscoverySendJoinRequest,    // Sending JOIN_ACK(NETWORK_ID), then will send JOIN_REQUEST
     StateDiscoveryWaitForJoinResponse,
     StateDiscoveryJoinComplete,
 

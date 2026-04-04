@@ -499,6 +499,11 @@ void ZehnderRF::loop(void) {
       }
       break;
 
+    case StateDiscoverySendJoinRequest:
+      // Intermediate state: JOIN_ACK(NETWORK_ID) is being sent.
+      // The TX callback will send JOIN_REQUEST and advance to WaitForJoinResponse.
+      break;
+
     case StateStartDiscovery:
       deviceId = this->createDeviceID();
       this->discoveryStart(deviceId);
@@ -698,53 +703,63 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
       ESP_LOGD(TAG, "DiscoverStateWaitForLinkRequest");
       switch (pResponse->command) {
         case FAN_NETWORK_JOIN_OPEN:  // Received linking request from main unit
-          ESP_LOGD(TAG, "Discovery: Found unit type 0x%02X (%s) with ID 0x%02X on network 0x%08X", pResponse->tx_type,
-                   pResponse->tx_type == FAN_TYPE_MAIN_UNIT ? "Main" : "?", pResponse->tx_id,
-                   pResponse->payload.networkJoinOpen.networkId);
+          ESP_LOGE(TAG, "JOIN_OPEN received: type=0x%02X id=0x%02X network=0x%08X",
+                   pResponse->tx_type, pResponse->tx_id, pResponse->payload.networkJoinOpen.networkId);
 
-          this->rfComplete();
+          this->rfComplete();  // Cancel current JOIN_ACK(LINK_ID) transmission
 
-          (void) memset(this->_txFrame, 0, FAN_FRAMESIZE);  // Clear frame data
-
-          // Found a main unit, so send a join request
-          // Target MAIN_UNIT (0x01) for JOIN_REQUEST - matches original working protocol
-          // JOIN_OPEN comes from MAIN_CONTROL (0x0E) but JOIN_REQUEST must go to MAIN_UNIT (0x01)
-          pTxFrame->rx_type = FAN_TYPE_MAIN_UNIT;  // 0x01 - hardcoded like original code
-          pTxFrame->rx_id = pResponse->tx_id;      // Set ID to the ID of the main unit
-          pTxFrame->tx_type = this->config_.fan_my_device_type;
-          pTxFrame->tx_id = this->config_.fan_my_device_id;
-          pTxFrame->ttl = FAN_TTL;
-          pTxFrame->command = FAN_NETWORK_JOIN_REQUEST;  // Request to connect to network
-          pTxFrame->parameter_count = sizeof(RfPayloadNetworkJoinOpen);
-          // Request to connect to the received network ID
-          pTxFrame->payload.networkJoinRequest.networkId = pResponse->payload.networkJoinOpen.networkId;
-
-          // Save config now - like original working code (cebbe06) did
-          // Do NOT wait for FRAME_0B: fan may not send it, or may send it to another device
+          // Save discovered fan info into config now (needed by callback lambdas below)
           this->config_.fan_networkId = pResponse->payload.networkJoinOpen.networkId;
           this->config_.fan_main_unit_type = FAN_TYPE_MAIN_UNIT;  // 0x01 - SETSPEED target
           this->config_.fan_main_unit_id = pResponse->tx_id;
-          this->pref_.save(&this->config_);
-          this->config_loaded_ = true;
 
-          ESP_LOGE(TAG, "========================================");
-          ESP_LOGE(TAG, "Sending JOIN_REQUEST on NETWORK channel, waiting for FRAME_0B");
-          ESP_LOGE(TAG, "Network: 0x%08X, Main: 0x%02X/0x%02X",
-                   this->config_.fan_networkId, this->config_.fan_main_unit_type,
-                   this->config_.fan_main_unit_id);
-          ESP_LOGE(TAG, "========================================");
+          // Step 2 (cebbe06 sequence): send JOIN_ACK with NETWORK_ID in payload.
+          // The fan needs to see this before it will accept JOIN_REQUEST and send FRAME_0B.
+          // This tells the fan "I know your network address, I belong here".
+          (void) memset(this->_txFrame, 0, FAN_FRAMESIZE);
+          pTxFrame->rx_type = 0x04;  // Joining mode indicator (same as initial JOIN_ACK)
+          pTxFrame->rx_id = 0x00;
+          pTxFrame->tx_type = this->config_.fan_my_device_type;
+          pTxFrame->tx_id = this->config_.fan_my_device_id;
+          pTxFrame->ttl = FAN_TTL;
+          pTxFrame->command = FAN_NETWORK_JOIN_ACK;
+          pTxFrame->parameter_count = sizeof(RfPayloadNetworkJoinAck);
+          pTxFrame->payload.networkJoinAck.networkId = this->config_.fan_networkId;  // NETWORK_ID in payload
 
-          // Stay on NETWORK channel - all pairing traffic uses NETWORK_ID as RF address.
-          // The fan (MAIN_UNIT) listens on 0xFE75FD9B and only receives frames with that RF address.
+          ESP_LOGE(TAG, "Sending JOIN_ACK(NETWORK_ID=0x%08X) - confirming we know the network",
+                   this->config_.fan_networkId);
 
-          // Send JOIN_REQUEST, wait for FRAME_0B from fan
-          this->startTransmit(this->_txFrame, FAN_TX_RETRIES, [this]() {
-            // No FRAME_0B received - config was already saved, just go to Idle
-            ESP_LOGW(TAG, "JOIN_REQUEST timeout - no FRAME_0B received, going Idle");
-            this->state_ = StateIdle;
+          // Send JOIN_ACK(NETWORK_ID), then chain to JOIN_REQUEST via callback
+          // Use 0 retries: TX fires once, waits ~1s for response, then callback fires
+          this->startTransmit(this->_txFrame, 0, [this]() {
+            // Now build and send JOIN_REQUEST
+            RfFrame *const pJoinReq = (RfFrame *) this->_txFrame;
+            (void) memset(this->_txFrame, 0, FAN_FRAMESIZE);
+            pJoinReq->rx_type = FAN_TYPE_MAIN_UNIT;  // 0x01
+            pJoinReq->rx_id = this->config_.fan_main_unit_id;
+            pJoinReq->tx_type = this->config_.fan_my_device_type;
+            pJoinReq->tx_id = this->config_.fan_my_device_id;
+            pJoinReq->ttl = FAN_TTL;
+            pJoinReq->command = FAN_NETWORK_JOIN_REQUEST;
+            pJoinReq->parameter_count = sizeof(RfPayloadNetworkJoinRequest);
+            pJoinReq->payload.networkJoinRequest.networkId = this->config_.fan_networkId;
+
+            this->pref_.save(&this->config_);
+            this->config_loaded_ = true;
+
+            ESP_LOGE(TAG, "Sending JOIN_REQUEST to MAIN_UNIT id=0x%02X network=0x%08X",
+                     this->config_.fan_main_unit_id, this->config_.fan_networkId);
+
+            this->startTransmit(this->_txFrame, FAN_TX_RETRIES, [this]() {
+              ESP_LOGW(TAG, "JOIN_REQUEST timeout - no FRAME_0B received, going Idle");
+              this->state_ = StateIdle;
+            });
+
+            this->state_ = StateDiscoveryWaitForJoinResponse;
           });
 
-          this->state_ = StateDiscoveryWaitForJoinResponse;
+          // Intermediate state: ignore further JOIN_OPENs while JOIN_ACK(NETWORK_ID) is in flight
+          this->state_ = StateDiscoverySendJoinRequest;
           break;
 
         default:
