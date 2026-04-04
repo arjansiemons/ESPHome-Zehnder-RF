@@ -710,7 +710,8 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
           (void) memset(this->_txFrame, 0, FAN_FRAMESIZE);  // Clear frame data
 
           // Found a main unit, so send a join request
-          pTxFrame->rx_type = FAN_TYPE_MAIN_UNIT;  // Set type to main unit
+          // Use the sender's type (MAIN_CONTROL 0x0E for Boxstream) not hardcoded MAIN_UNIT
+          pTxFrame->rx_type = pResponse->tx_type;  // Address JOIN_REQUEST to JOIN_OPEN sender
           pTxFrame->rx_id = pResponse->tx_id;      // Set ID to the ID of the main unit
           pTxFrame->tx_type = this->config_.fan_my_device_type;
           pTxFrame->tx_id = this->config_.fan_my_device_id;
@@ -803,6 +804,8 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
             this->rfComplete();
 
             ESP_LOGD(TAG, "Saving pairing config");
+            // SETSPEED must always go to MAIN_UNIT (0x01), not to the pairing controller (MAIN_CONTROL 0x0E)
+            this->config_.fan_main_unit_type = FAN_TYPE_MAIN_UNIT;
             this->pref_.save(&this->config_);
 
             this->state_ = StateIdle;
