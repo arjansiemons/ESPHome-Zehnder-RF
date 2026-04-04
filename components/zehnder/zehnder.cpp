@@ -1058,7 +1058,7 @@ void ZehnderRF::setSpeed(const uint8_t paramSpeed, const uint8_t paramTimer) {
 
     // Build frame
     pFrame->rx_type = this->config_.fan_main_unit_type;
-    pFrame->rx_id = this->config_.fan_main_unit_id;
+    pFrame->rx_id = 0x00;  // broadcast - MAIN_UNIT accepts commands to rx_id=0x00
     pFrame->tx_type = this->config_.fan_my_device_type;
     pFrame->tx_id = this->config_.fan_my_device_id;
     pFrame->ttl = FAN_TTL;
