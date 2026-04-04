@@ -441,8 +441,8 @@ void ZehnderRF::pair_as_remote() {
   //   StateDiscoveryWaitForJoinResponse: wait for FRAME_0B → send FRAME_0B ack
   //   StateDiscoveryJoinComplete: wait for QUERY_NETWORK → save config → StateIdle
   this->startTransmit(this->_txFrame, FAN_TX_RETRIES, [this]() {
-    ESP_LOGW(TAG, "Pairing: JOIN_ACK timeout - is the fan in pairing mode?");
-    this->state_ = StateStartDiscovery;
+    ESP_LOGW(TAG, "Pairing: JOIN_ACK timeout - fan not in pairing mode. Press 'Pair as Remote' again after enabling pairing mode on fan.");
+    this->state_ = StateIdle;
   });
 
   this->state_ = StateDiscoveryWaitForLinkRequest;
@@ -486,16 +486,16 @@ void ZehnderRF::loop(void) {
     case StateStartup:
       // Wait until started up
       if (millis() > 5000) {
+        // Whether config is loaded or not: go to Idle.
+        // If no config: wait for user to press "Pair as Remote". No auto-pairing.
+        // Auto-pairing caused an infinite TX loop (new random ID each cycle) which
+        // confused the fan and prevented JOIN_OPEN from being received cleanly.
         if (this->config_loaded_) {
-          // Valid config from flash - skip pairing, go straight to Idle
-          ESP_LOGE(TAG, "Valid config loaded - skipping auto-pairing, going to Idle");
-          this->state_ = StateIdle;
+          ESP_LOGE(TAG, "Valid config loaded - going to Idle");
         } else {
-          // No valid config - start async pairing (pair_as_remote is async, do NOT set state_ after)
-          ESP_LOGE(TAG, "No config - starting auto-pairing sequence");
-          this->pair_as_remote();
-          // Do NOT set state_ here - pair_as_remote() drives the state machine
+          ESP_LOGE(TAG, "No config - going to Idle. Press 'Pair as Remote' to pair.");
         }
+        this->state_ = StateIdle;
       }
       break;
 
