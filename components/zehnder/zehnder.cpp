@@ -486,19 +486,16 @@ void ZehnderRF::loop(void) {
     case StateStartup:
       // Wait until started up
       if (millis() > 5000) {
-        ESP_LOGE(TAG, "========================================");
-        ESP_LOGE(TAG, "AUTOMATIC PAIRING: Starting pairing sequence");
-        ESP_LOGE(TAG, "========================================");
-
-        // Automatically execute pairing sequence
-        this->pair_as_remote();
-
-        // After pairing, go to Idle
-        this->state_ = StateIdle;
-
-        ESP_LOGE(TAG, "========================================");
-        ESP_LOGE(TAG, "PAIRING COMPLETE - Fan control ready!");
-        ESP_LOGE(TAG, "========================================");
+        if (config_loaded) {
+          // Valid config from flash - skip pairing, go straight to Idle
+          ESP_LOGE(TAG, "Valid config loaded - skipping auto-pairing, going to Idle");
+          this->state_ = StateIdle;
+        } else {
+          // No valid config - start async pairing (pair_as_remote is async, do NOT set state_ after)
+          ESP_LOGE(TAG, "No config - starting auto-pairing sequence");
+          this->pair_as_remote();
+          // Do NOT set state_ here - pair_as_remote() drives the state machine
+        }
       }
       break;
 
