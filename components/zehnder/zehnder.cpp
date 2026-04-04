@@ -719,21 +719,32 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
           // Request to connect to the received network ID
           pTxFrame->payload.networkJoinRequest.networkId = pResponse->payload.networkJoinOpen.networkId;
 
-          // Store for later - MAIN_UNIT type for SETSPEED commands
+          // Save config now - like original working code (cebbe06) did
+          // Do NOT wait for FRAME_0B: fan may not send it, or may send it to another device
           this->config_.fan_networkId = pResponse->payload.networkJoinOpen.networkId;
           this->config_.fan_main_unit_type = FAN_TYPE_MAIN_UNIT;  // 0x01 - SETSPEED target
           this->config_.fan_main_unit_id = pResponse->tx_id;
+          this->pref_.save(&this->config_);
+          this->config_loaded_ = true;
 
-          // Update address
+          ESP_LOGE(TAG, "========================================");
+          ESP_LOGE(TAG, "JOIN_REQUEST sent - pairing config saved!");
+          ESP_LOGE(TAG, "Network: 0x%08X, Main: 0x%02X/0x%02X",
+                   this->config_.fan_networkId, this->config_.fan_main_unit_type,
+                   this->config_.fan_main_unit_id);
+          ESP_LOGE(TAG, "========================================");
+
+          // Update address to network channel
           rfConfig = this->rf_->getConfig();
           rfConfig.rx_address = pResponse->payload.networkJoinOpen.networkId;
           this->rf_->updateConfig(&rfConfig, NULL);
           this->rf_->writeTxAddress(pResponse->payload.networkJoinOpen.networkId, NULL);
 
-          // Send response frame
+          // Send JOIN_REQUEST, then go to Idle - don't wait for FRAME_0B
           this->startTransmit(this->_txFrame, FAN_TX_RETRIES, [this]() {
-            ESP_LOGW(TAG, "Query Timeout");
-            this->state_ = StateStartDiscovery;
+            // Timeout just means no FRAME_0B came - that's OK, config already saved
+            ESP_LOGW(TAG, "JOIN_REQUEST: no FRAME_0B received, but config saved - going to Idle");
+            this->state_ = StateIdle;
           });
 
           this->state_ = StateDiscoveryWaitForJoinResponse;
