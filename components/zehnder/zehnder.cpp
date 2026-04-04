@@ -1137,14 +1137,14 @@ void ZehnderRF::rfHandler(void) {
           // Oh oh, ran out of options
           ESP_LOGE(TAG, "  !!! ALL RETRIES EXHAUSTED - CALLING TIMEOUT CALLBACK !!!");
           ESP_LOGE(TAG, "  No messages received after %d retries, giving up now...", FAN_TX_RETRIES);
+          // Set Idle BEFORE calling callback so callback can call startTransmit()
+          this->rfState_ = RfStateIdle;
+
           if (this->onReceiveTimeout_ != NULL) {
             this->onReceiveTimeout_();
           } else {
             ESP_LOGE(TAG, "  WARNING: No timeout callback registered!");
           }
-
-          // Back to idle
-          this->rfState_ = RfStateIdle;
         }
       }
       break;
