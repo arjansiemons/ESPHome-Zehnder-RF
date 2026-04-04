@@ -415,8 +415,9 @@ void ZehnderRF::pair_as_remote() {
   RfFrame *const pFrame = (RfFrame *) this->_txFrame;
   nrf905::Config rfConfig;
 
-  // Build JOIN_ACK frame - stay on network channel (0xFE75FD9B) like cebbe06
-  // Do NOT switch to LINK_ID: entire pairing exchange must be on the same channel
+  // Build JOIN_ACK frame - use LINK_ID channel for entire pairing exchange
+  // The fan sends FRAME_0B back on LINK_ID. All pairing traffic stays on LINK_ID.
+  // Only after pairing completes (QUERY_NETWORK) do we switch to network channel.
   memset(this->_txFrame, 0, FAN_FRAMESIZE);
   pFrame->rx_type = 0x04;  // Joining mode indicator
   pFrame->rx_id = 0x00;
@@ -427,10 +428,13 @@ void ZehnderRF::pair_as_remote() {
   pFrame->parameter_count = sizeof(RfPayloadNetworkJoinAck);
   pFrame->payload.networkJoinAck.networkId = NETWORK_LINK_ID;
 
-  // Stay on network channel - cebbe06 never switched to LINK_ID and pairing worked
-  // If we switch JOIN_ACK to LINK_ID but JOIN_REQUEST to network, fan gets confused
+  // Switch to LINK_ID channel for pairing
+  rfConfig = this->rf_->getConfig();
+  rfConfig.rx_address = NETWORK_LINK_ID;
+  this->rf_->updateConfig(&rfConfig, NULL);
+  this->rf_->writeTxAddress(NETWORK_LINK_ID, NULL);
 
-  ESP_LOGE(TAG, "Sending JOIN_ACK on network channel (0xFE75FD9B), waiting for JOIN_OPEN...");
+  ESP_LOGE(TAG, "Sending JOIN_ACK on LINK_ID channel, waiting for JOIN_OPEN...");
 
   // Send JOIN_ACK and hand off to the async state machine
   // The state machine will:
@@ -725,19 +729,26 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
           this->config_loaded_ = true;
 
           ESP_LOGE(TAG, "========================================");
-          ESP_LOGE(TAG, "JOIN_REQUEST sent - pairing config saved!");
+          ESP_LOGE(TAG, "JOIN_REQUEST sending on LINK_ID channel - waiting for FRAME_0B");
           ESP_LOGE(TAG, "Network: 0x%08X, Main: 0x%02X/0x%02X",
                    this->config_.fan_networkId, this->config_.fan_main_unit_type,
                    this->config_.fan_main_unit_id);
           ESP_LOGE(TAG, "========================================");
 
-          // Stay on network channel - no address switch needed
-          // cebbe06 never changed rx_address and pairing worked
+          // KEEP LINK_ID channel - fan sends FRAME_0B back on LINK_ID, not on network channel
+          // Only switch to network channel after QUERY_NETWORK completes pairing
 
-          // Send JOIN_REQUEST, then go to Idle - don't wait for FRAME_0B
+          // Send JOIN_REQUEST on LINK_ID, wait for FRAME_0B
           this->startTransmit(this->_txFrame, FAN_TX_RETRIES, [this]() {
-            // Timeout just means no FRAME_0B came - that's OK, config already saved
-            ESP_LOGW(TAG, "JOIN_REQUEST: no FRAME_0B received, but config saved - going to Idle");
+            // No FRAME_0B received - save config anyway and go to Idle
+            ESP_LOGW(TAG, "JOIN_REQUEST timeout - no FRAME_0B, saving config and going Idle");
+            this->pref_.save(&this->config_);
+            this->config_loaded_ = true;
+            // Switch back to network channel
+            nrf905::Config rfConfig = this->rf_->getConfig();
+            rfConfig.rx_address = this->config_.fan_networkId;
+            this->rf_->updateConfig(&rfConfig, NULL);
+            this->rf_->writeTxAddress(this->config_.fan_networkId, NULL);
             this->state_ = StateIdle;
           });
 
@@ -810,10 +821,16 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
 
             this->rfComplete();
 
-            ESP_LOGD(TAG, "Saving pairing config");
-            // SETSPEED must always go to MAIN_UNIT (0x01), not to the pairing controller (MAIN_CONTROL 0x0E)
+            ESP_LOGE(TAG, "PAIRING COMPLETE - switching to network channel");
             this->config_.fan_main_unit_type = FAN_TYPE_MAIN_UNIT;
             this->pref_.save(&this->config_);
+            this->config_loaded_ = true;
+
+            // Switch from LINK_ID back to network channel now that pairing is done
+            nrf905::Config rfConfig2 = this->rf_->getConfig();
+            rfConfig2.rx_address = this->config_.fan_networkId;
+            this->rf_->updateConfig(&rfConfig2, NULL);
+            this->rf_->writeTxAddress(this->config_.fan_networkId, NULL);
 
             this->state_ = StateIdle;
           } else {
@@ -1026,7 +1043,11 @@ void ZehnderRF::discoveryStart(const uint8_t deviceId) {
   pFrame->parameter_count = sizeof(RfPayloadNetworkJoinAck);
   pFrame->payload.networkJoinAck.networkId = NETWORK_LINK_ID;
 
-  // Stay on network channel - no LINK_ID switching
+  // Switch to LINK_ID channel for pairing
+  rfConfig = this->rf_->getConfig();
+  rfConfig.rx_address = NETWORK_LINK_ID;
+  this->rf_->updateConfig(&rfConfig, NULL);
+  this->rf_->writeTxAddress(NETWORK_LINK_ID, NULL);
 
   this->startTransmit(this->_txFrame, FAN_TX_RETRIES, [this]() {
     ESP_LOGW(TAG, "Start discovery timeout");
