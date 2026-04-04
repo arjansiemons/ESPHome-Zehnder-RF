@@ -710,8 +710,9 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
           (void) memset(this->_txFrame, 0, FAN_FRAMESIZE);  // Clear frame data
 
           // Found a main unit, so send a join request
-          // Use the sender's type (MAIN_CONTROL 0x0E for Boxstream) not hardcoded MAIN_UNIT
-          pTxFrame->rx_type = pResponse->tx_type;  // Address JOIN_REQUEST to JOIN_OPEN sender
+          // Target MAIN_UNIT (0x01) for JOIN_REQUEST - matches original working protocol
+          // JOIN_OPEN comes from MAIN_CONTROL (0x0E) but JOIN_REQUEST must go to MAIN_UNIT (0x01)
+          pTxFrame->rx_type = FAN_TYPE_MAIN_UNIT;  // 0x01 - hardcoded like original code
           pTxFrame->rx_id = pResponse->tx_id;      // Set ID to the ID of the main unit
           pTxFrame->tx_type = this->config_.fan_my_device_type;
           pTxFrame->tx_id = this->config_.fan_my_device_id;
@@ -721,9 +722,9 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
           // Request to connect to the received network ID
           pTxFrame->payload.networkJoinRequest.networkId = pResponse->payload.networkJoinOpen.networkId;
 
-          // Store for later
+          // Store for later - MAIN_UNIT type for SETSPEED commands
           this->config_.fan_networkId = pResponse->payload.networkJoinOpen.networkId;
-          this->config_.fan_main_unit_type = pResponse->tx_type;
+          this->config_.fan_main_unit_type = FAN_TYPE_MAIN_UNIT;  // 0x01 - SETSPEED target
           this->config_.fan_main_unit_id = pResponse->tx_id;
 
           // Update address
@@ -779,8 +780,12 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
 
             this->state_ = StateDiscoveryJoinComplete;
           } else {
-            ESP_LOGE(TAG, "Discovery: Received unknown link success from ID 0x%02X on network 0x%08X", pResponse->tx_id,
-                     this->config_.fan_networkId);
+            ESP_LOGE(TAG, "Discovery: FRAME_0B type mismatch!");
+            ESP_LOGE(TAG, "  Got:      rx_type=0x%02X rx_id=0x%02X tx_type=0x%02X tx_id=0x%02X",
+                     pResponse->rx_type, pResponse->rx_id, pResponse->tx_type, pResponse->tx_id);
+            ESP_LOGE(TAG, "  Expected: rx_type=0x%02X rx_id=0x%02X tx_type=0x%02X tx_id=0x%02X",
+                     this->config_.fan_my_device_type, this->config_.fan_my_device_id,
+                     this->config_.fan_main_unit_type, this->config_.fan_main_unit_id);
           }
           break;
 
