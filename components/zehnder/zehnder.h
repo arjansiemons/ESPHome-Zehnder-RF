@@ -118,6 +118,7 @@ class ZehnderRF : public Component, public fan::Fan {
     StateNrOf  // Keep last
   } State;
   State state_{StateStartup};
+  bool config_loaded_{false};
   int speed_count_{};
 
   nrf905::nRF905 *rf_;

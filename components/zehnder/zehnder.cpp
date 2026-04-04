@@ -127,7 +127,7 @@ void ZehnderRF::setup() {
 
   uint32_t hash = fnv1_hash("zehnderrf");
   this->pref_ = global_preferences->make_preference<Config>(hash, true);
-  bool config_loaded = false;
+  this->config_loaded_ = false;
   if (this->pref_.load(&this->config_)) {
     ESP_LOGW(TAG, "Config loaded from preferences:");
     ESP_LOGW(TAG, "  Network ID: 0x%08X", this->config_.fan_networkId);
@@ -139,7 +139,7 @@ void ZehnderRF::setup() {
         this->config_.fan_my_device_type == FAN_TYPE_RF_REMOTE &&
         this->config_.fan_my_device_id != 0 &&
         this->config_.fan_main_unit_id != 0) {
-      config_loaded = true;
+      this->config_loaded_ = true;
       ESP_LOGW(TAG, "✓ Valid pairing configuration found - will skip auto-pairing");
 
       // CRITICAL FIX: Always force target to MAIN_UNIT (0x01) regardless of saved value
@@ -208,7 +208,7 @@ void ZehnderRF::setup() {
   this->speed_count_ = 4;  // 4 speeds (HA 1-4 → presets 1-4, OFF → preset 0)
 
   // If no valid config was loaded, use our known-good defaults
-  if (!config_loaded) {
+  if (!this->config_loaded_) {
     ESP_LOGE(TAG, ">>> No valid config found - using default configuration");
     this->config_.fan_networkId = 0xFE75FD9B;
     this->config_.fan_my_device_type = FAN_TYPE_RF_REMOTE;  // 0x0F (like bathroom remote)
@@ -258,7 +258,7 @@ void ZehnderRF::setup() {
   this->publish_state();
 
   // Decide whether to pair or go straight to Idle
-  if (config_loaded) {
+  if (this->config_loaded_) {
     // Already paired - go straight to Idle for immediate fan control
     this->state_ = StateIdle;
     ESP_LOGE(TAG, "========================================");
@@ -486,7 +486,7 @@ void ZehnderRF::loop(void) {
     case StateStartup:
       // Wait until started up
       if (millis() > 5000) {
-        if (config_loaded) {
+        if (this->config_loaded_) {
           // Valid config from flash - skip pairing, go straight to Idle
           ESP_LOGE(TAG, "Valid config loaded - skipping auto-pairing, going to Idle");
           this->state_ = StateIdle;
