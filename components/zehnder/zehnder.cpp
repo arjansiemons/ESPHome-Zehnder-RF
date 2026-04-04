@@ -1003,7 +1003,7 @@ void ZehnderRF::discoveryStart(const uint8_t deviceId) {
 
   ESP_LOGD(TAG, "Start discovery with ID %u", deviceId);
 
-  this->config_.fan_my_device_type = FAN_TYPE_REMOTE_CONTROL;
+  this->config_.fan_my_device_type = FAN_TYPE_RF_REMOTE;  // 0x0F - must match bathroom remote type
   this->config_.fan_my_device_id = deviceId;
 
   // Build frame
