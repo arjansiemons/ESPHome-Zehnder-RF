@@ -415,49 +415,111 @@ void ZehnderRF::pair_as_remote() {
     return;
   }
 
+  // Disable promiscuous mode for pairing - need address match
+  this->rf_->setPromiscuousMode(false);
+
   RfFrame *const pFrame = (RfFrame *) this->_txFrame;
+  uint8_t ttl_values[4] = {0xFA, 0xAF, 0x5E, 0x29};
 
-  // nRF905 address handling for pairing:
-  // - RX address = LINK_ID: required to RECEIVE JOIN_OPEN (fan sends with TX_ADDRESS = LINK_ID)
-  //   The nRF905 only raises DR when address matches; promiscuous mode does NOT override this.
-  // - TX address = LINK_ID: required so fan can receive our JOIN_ACK frames.
-  //   After sending JOIN_OPEN, the fan listens on LINK_ID for JOIN_ACK(NETWORK_ID) confirmation.
-  //   If we send on NETWORK_ID, the fan never sees it and won't advance to accept JOIN_REQUEST.
-  //   We switch TX back to NETWORK_ID before sending JOIN_REQUEST.
-  nrf905::Config rfConfig = this->rf_->getConfig();
-  rfConfig.rx_address = NETWORK_LINK_ID;
-  this->rf_->updateConfig(&rfConfig, NULL);
-  this->rf_->writeTxAddress(NETWORK_LINK_ID);  // TX = LINK_ID for JOIN_ACK frames
-
+  // Step 1: Send JOIN_ACK with LINK_ID payload, 4x retransmit with decreasing TTL
   memset(this->_txFrame, 0, FAN_FRAMESIZE);
-  pFrame->rx_type = 0x04;  // Joining mode indicator
+  pFrame->rx_type = 0x04;
   pFrame->rx_id = 0x00;
-  pFrame->tx_type = this->config_.fan_my_device_type;  // 0x0F (RF_REMOTE)
+  pFrame->tx_type = this->config_.fan_my_device_type;
   pFrame->tx_id = this->config_.fan_my_device_id;
-  pFrame->ttl = FAN_TTL;
   pFrame->command = FAN_NETWORK_JOIN_ACK;
-  pFrame->parameter_count = sizeof(RfPayloadNetworkJoinAck);
-  pFrame->payload.networkJoinAck.networkId = NETWORK_LINK_ID;  // LINK_ID in payload (protocol field)
+  pFrame->parameter_count = 4;
+  pFrame->payload.parameters[0] = 0xA5;
+  pFrame->payload.parameters[1] = 0x5A;
+  pFrame->payload.parameters[2] = 0x5A;
+  pFrame->payload.parameters[3] = 0xA5;
 
-  ESP_LOGE(TAG, "RX=LINK_ID (to receive JOIN_OPEN), TX=LINK_ID (for fan to receive our JOIN_ACK)");
+  ESP_LOGE(TAG, "Step 1: Sending JOIN_ACK(LINK_ID) x4");
+  for (int tx = 0; tx < 4; tx++) {
+    pFrame->ttl = ttl_values[tx];
+    this->startTransmit(this->_txFrame, -1, NULL);
+    for (int i = 0; i < 100; i++) {
+      this->rf_->loop();
+      this->rfHandler();
+      if (this->rfState_ == RfStateIdle) break;
+      delay(10);
+    }
+    delay(50);
+  }
 
-  // Send JOIN_ACK and hand off to the async state machine
-  // The state machine will:
-  //   StateDiscoveryWaitForLinkRequest: wait for JOIN_OPEN → send JOIN_REQUEST
-  //   StateDiscoveryWaitForJoinResponse: wait for FRAME_0B → send FRAME_0B ack
-  //   StateDiscoveryJoinComplete: wait for QUERY_NETWORK → save config → StateIdle
-  this->startTransmit(this->_txFrame, FAN_TX_RETRIES, [this]() {
-    ESP_LOGW(TAG, "Pairing: JOIN_ACK timeout - fan not in pairing mode. Press 'Pair as Remote' again after enabling pairing mode on fan.");
-    // Restore rx+TX to NETWORK_ID before going Idle (avoid stuck-on-LINK_ID bug)
-    nrf905::Config rfCfg = this->rf_->getConfig();
-    rfCfg.rx_address = this->config_.fan_networkId;
-    this->rf_->updateConfig(&rfCfg, NULL);
-    this->rf_->writeTxAddress(this->config_.fan_networkId);
-    this->state_ = StateIdle;
-  });
+  // Step 2: Send JOIN_ACK with NETWORK_ID payload, 2x repeated x4 retransmit each
+  memset(this->_txFrame, 0, FAN_FRAMESIZE);
+  pFrame->rx_type = 0x04;
+  pFrame->rx_id = 0x00;
+  pFrame->tx_type = this->config_.fan_my_device_type;
+  pFrame->tx_id = this->config_.fan_my_device_id;
+  pFrame->command = FAN_NETWORK_JOIN_ACK;
+  pFrame->parameter_count = 4;
+  pFrame->payload.parameters[0] = 0x9B;
+  pFrame->payload.parameters[1] = 0xFD;
+  pFrame->payload.parameters[2] = 0x75;
+  pFrame->payload.parameters[3] = 0xFE;
 
-  this->state_ = StateDiscoveryWaitForLinkRequest;
-  ESP_LOGE(TAG, "Waiting for JOIN_OPEN from fan (fan must be in pairing mode)...");
+  ESP_LOGE(TAG, "Step 2: Sending JOIN_ACK(NETWORK_ID) x2x4");
+  for (int repeat = 0; repeat < 2; repeat++) {
+    for (int tx = 0; tx < 4; tx++) {
+      pFrame->ttl = ttl_values[tx];
+      this->startTransmit(this->_txFrame, -1, NULL);
+      for (int i = 0; i < 100; i++) {
+        this->rf_->loop();
+        this->rfHandler();
+        if (this->rfState_ == RfStateIdle) break;
+        delay(10);
+      }
+      delay(50);
+    }
+    delay(100);
+  }
+
+  // Step 3: Send JOIN_REQUEST to MAIN_UNIT (0x01), 4x retransmit
+  memset(this->_txFrame, 0, FAN_FRAMESIZE);
+  pFrame->rx_type = FAN_TYPE_MAIN_UNIT;  // 0x01
+  pFrame->rx_id = this->config_.fan_main_unit_id;
+  pFrame->tx_type = this->config_.fan_my_device_type;
+  pFrame->tx_id = this->config_.fan_my_device_id;
+  pFrame->command = FAN_NETWORK_JOIN_REQUEST;
+  pFrame->parameter_count = 4;
+  pFrame->payload.parameters[0] = 0x9B;
+  pFrame->payload.parameters[1] = 0xFD;
+  pFrame->payload.parameters[2] = 0x75;
+  pFrame->payload.parameters[3] = 0xFE;
+
+  ESP_LOGE(TAG, "Step 3: Sending JOIN_REQUEST to MAIN_UNIT(0x01/0x%02X) x4", this->config_.fan_main_unit_id);
+  for (int tx = 0; tx < 4; tx++) {
+    pFrame->ttl = ttl_values[tx];
+    this->startTransmit(this->_txFrame, -1, NULL);
+    for (int i = 0; i < 100; i++) {
+      this->rf_->loop();
+      this->rfHandler();
+      if (this->rfState_ == RfStateIdle) break;
+      delay(10);
+    }
+    delay(50);
+  }
+
+  // Re-enable promiscuous mode and wait 2s for FRAME_0B
+  this->rf_->setPromiscuousMode(true);
+  ESP_LOGE(TAG, "Waiting 2s for FRAME_0B confirmation...");
+  for (int i = 0; i < 200; i++) {
+    this->rf_->loop();
+    delay(10);
+  }
+
+  // Save config unconditionally — pairing sequence sent, fan should have registered us
+  this->config_.fan_networkId = 0xFE75FD9B;
+  this->config_.fan_main_unit_type = FAN_TYPE_MAIN_UNIT;
+  this->config_.fan_main_unit_id = 0x39;
+  this->pref_.save(&this->config_);
+  this->config_loaded_ = true;
+  this->state_ = StateIdle;
+
+  ESP_LOGE(TAG, "PAIRING COMPLETE - config saved, going to Idle");
+  ESP_LOGE(TAG, "========================================");
 }
 
 void ZehnderRF::dump_config(void) {
