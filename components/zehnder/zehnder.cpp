@@ -515,14 +515,15 @@ void ZehnderRF::loop(void) {
       // As soon as rfState==Idle (TX done), immediately send JOIN_REQUEST.
       // No delay — fan has a short window after receiving JOIN_ACK(NETWORK_ID).
       if (this->rfState_ == RfStateIdle) {
-        // Switch rx+TX to NETWORK_ID: MAIN_CONTROL listens on NETWORK_ID for JOIN_REQUEST.
-        // FRAME_0B response also comes on NETWORK_ID (confirmed from bathroom remote pairing logs).
+        // Switch rx to NETWORK_ID so we receive FRAME_0B (TX_ADDRESS=NETWORK_ID confirmed).
+        // Keep TX_ADDRESS=LINK_ID (set in pair_as_remote): fan's rx_address=LINK_ID during pairing,
+        // so JOIN_REQUEST must be sent with TX=LINK_ID for fan to receive it.
         {
           nrf905::Config rfCfg = this->rf_->getConfig();
           rfCfg.rx_address = this->config_.fan_networkId;
           this->rf_->updateConfig(&rfCfg, NULL);
-          this->rf_->writeTxAddress(this->config_.fan_networkId);  // LINK_ID → NETWORK_ID
-          ESP_LOGE(TAG, "rx+TX switched to NETWORK_ID - sending JOIN_REQUEST immediately");
+          // DO NOT change TX_ADDRESS here — keep LINK_ID so fan receives JOIN_REQUEST
+          ESP_LOGE(TAG, "rx=NETWORK_ID (receive FRAME_0B), TX stays LINK_ID (fan receives JOIN_REQUEST)");
         }
 
         RfFrame *const pJoinReq = (RfFrame *) this->_txFrame;
@@ -544,6 +545,8 @@ void ZehnderRF::loop(void) {
 
         this->startTransmit(this->_txFrame, FAN_TX_RETRIES, [this]() {
           ESP_LOGW(TAG, "JOIN_REQUEST timeout - no FRAME_0B received, going Idle");
+          // Restore TX_ADDRESS to NETWORK_ID (was LINK_ID for JOIN_REQUEST)
+          this->rf_->writeTxAddress(this->config_.fan_networkId);
           this->state_ = StateIdle;
         });
         this->state_ = StateDiscoveryWaitForJoinResponse;
