@@ -448,6 +448,11 @@ void ZehnderRF::pair_as_remote() {
   //   StateDiscoveryJoinComplete: wait for QUERY_NETWORK → save config → StateIdle
   this->startTransmit(this->_txFrame, FAN_TX_RETRIES, [this]() {
     ESP_LOGW(TAG, "Pairing: JOIN_ACK timeout - fan not in pairing mode. Press 'Pair as Remote' again after enabling pairing mode on fan.");
+    // Restore rx+TX to NETWORK_ID before going Idle (avoid stuck-on-LINK_ID bug)
+    nrf905::Config rfCfg = this->rf_->getConfig();
+    rfCfg.rx_address = this->config_.fan_networkId;
+    this->rf_->updateConfig(&rfCfg, NULL);
+    this->rf_->writeTxAddress(this->config_.fan_networkId);
     this->state_ = StateIdle;
   });
 
