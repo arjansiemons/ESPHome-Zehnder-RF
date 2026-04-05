@@ -709,15 +709,22 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
 
           this->rfComplete();  // Cancel current JOIN_ACK(LINK_ID) transmission
 
-          // Keep rx_address = LINK_ID - do NOT switch back to NETWORK_ID yet.
-          // The fan is still in pairing mode and sends FRAME_0B with TX_ADDRESS = LINK_ID.
-          // We need rx_address = LINK_ID to receive FRAME_0B.
-          // Only switch to NETWORK_ID after pairing is fully complete (in JoinComplete state).
-
-          // Save discovered fan info into config now (needed by callback lambdas below)
+          // Save discovered fan info first (needed below)
           this->config_.fan_networkId = pResponse->payload.networkJoinOpen.networkId;
           this->config_.fan_main_unit_type = FAN_TYPE_MAIN_UNIT;  // 0x01 - SETSPEED target
           this->config_.fan_main_unit_id = pResponse->tx_id;
+
+          // Switch rx_address back to NETWORK_ID immediately.
+          // FRAME_0B is sent by the fan with TX_ADDRESS = NETWORK_ID (normal channel, not LINK_ID).
+          // In cebbe06 (last working code), rx_address was NETWORK_ID the entire time, including
+          // when waiting for FRAME_0B. We only needed LINK_ID to catch JOIN_OPEN itself.
+          {
+            nrf905::Config rfCfg = this->rf_->getConfig();
+            rfCfg.rx_address = this->config_.fan_networkId;
+            this->rf_->updateConfig(&rfCfg, NULL);
+            ESP_LOGE(TAG, "Switched rx_address back to NETWORK_ID=0x%08X for FRAME_0B reception",
+                     this->config_.fan_networkId);
+          }
 
           // Step 2 (cebbe06 sequence): send JOIN_ACK with NETWORK_ID in payload.
           // The fan needs to see this before it will accept JOIN_REQUEST and send FRAME_0B.
