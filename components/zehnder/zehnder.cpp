@@ -415,111 +415,39 @@ void ZehnderRF::pair_as_remote() {
     return;
   }
 
-  // Disable promiscuous mode for pairing - need address match
-  this->rf_->setPromiscuousMode(false);
+  // Step 1: listen for JOIN_OPEN on LINK_ID channel
+  // Fan broadcasts JOIN_OPEN with TX=LINK_ID, so rx must be LINK_ID.
+  // TX=LINK_ID so fan can receive our JOIN_ACK on the same channel.
+  nrf905::Config rfConfig = this->rf_->getConfig();
+  rfConfig.rx_address = NETWORK_LINK_ID;
+  this->rf_->updateConfig(&rfConfig, NULL);
+  this->rf_->writeTxAddress(NETWORK_LINK_ID);
 
+  // Build JOIN_ACK(LINK_ID) frame
   RfFrame *const pFrame = (RfFrame *) this->_txFrame;
-  uint8_t ttl_values[4] = {0xFA, 0xAF, 0x5E, 0x29};
-
-  // Step 1: Send JOIN_ACK with LINK_ID payload, 4x retransmit with decreasing TTL
   memset(this->_txFrame, 0, FAN_FRAMESIZE);
   pFrame->rx_type = 0x04;
   pFrame->rx_id = 0x00;
   pFrame->tx_type = this->config_.fan_my_device_type;
   pFrame->tx_id = this->config_.fan_my_device_id;
+  pFrame->ttl = FAN_TTL;
   pFrame->command = FAN_NETWORK_JOIN_ACK;
-  pFrame->parameter_count = 4;
-  pFrame->payload.parameters[0] = 0xA5;
-  pFrame->payload.parameters[1] = 0x5A;
-  pFrame->payload.parameters[2] = 0x5A;
-  pFrame->payload.parameters[3] = 0xA5;
+  pFrame->parameter_count = sizeof(RfPayloadNetworkJoinAck);
+  pFrame->payload.networkJoinAck.networkId = NETWORK_LINK_ID;
 
-  ESP_LOGE(TAG, "Step 1: Sending JOIN_ACK(LINK_ID) x4");
-  for (int tx = 0; tx < 4; tx++) {
-    pFrame->ttl = ttl_values[tx];
-    this->startTransmit(this->_txFrame, -1, NULL);
-    for (int i = 0; i < 100; i++) {
-      this->rf_->loop();
-      this->rfHandler();
-      if (this->rfState_ == RfStateIdle) break;
-      delay(10);
-    }
-    delay(50);
-  }
+  ESP_LOGE(TAG, "rx=LINK_ID, TX=LINK_ID - sending JOIN_ACK(LINK_ID), waiting for JOIN_OPEN...");
 
-  // Step 2: Send JOIN_ACK with NETWORK_ID payload, 2x repeated x4 retransmit each
-  memset(this->_txFrame, 0, FAN_FRAMESIZE);
-  pFrame->rx_type = 0x04;
-  pFrame->rx_id = 0x00;
-  pFrame->tx_type = this->config_.fan_my_device_type;
-  pFrame->tx_id = this->config_.fan_my_device_id;
-  pFrame->command = FAN_NETWORK_JOIN_ACK;
-  pFrame->parameter_count = 4;
-  pFrame->payload.parameters[0] = 0x9B;
-  pFrame->payload.parameters[1] = 0xFD;
-  pFrame->payload.parameters[2] = 0x75;
-  pFrame->payload.parameters[3] = 0xFE;
+  // Send with retries; timeout = fan not in pairing mode
+  this->startTransmit(this->_txFrame, FAN_TX_RETRIES, [this]() {
+    ESP_LOGW(TAG, "Pairing timeout - no JOIN_OPEN received. Is fan in pairing mode?");
+    nrf905::Config rfCfg = this->rf_->getConfig();
+    rfCfg.rx_address = this->config_.fan_networkId;
+    this->rf_->updateConfig(&rfCfg, NULL);
+    this->rf_->writeTxAddress(this->config_.fan_networkId);
+    this->state_ = StateIdle;
+  });
 
-  ESP_LOGE(TAG, "Step 2: Sending JOIN_ACK(NETWORK_ID) x2x4");
-  for (int repeat = 0; repeat < 2; repeat++) {
-    for (int tx = 0; tx < 4; tx++) {
-      pFrame->ttl = ttl_values[tx];
-      this->startTransmit(this->_txFrame, -1, NULL);
-      for (int i = 0; i < 100; i++) {
-        this->rf_->loop();
-        this->rfHandler();
-        if (this->rfState_ == RfStateIdle) break;
-        delay(10);
-      }
-      delay(50);
-    }
-    delay(100);
-  }
-
-  // Step 3: Send JOIN_REQUEST to MAIN_UNIT (0x01), 4x retransmit
-  memset(this->_txFrame, 0, FAN_FRAMESIZE);
-  pFrame->rx_type = FAN_TYPE_MAIN_UNIT;  // 0x01
-  pFrame->rx_id = this->config_.fan_main_unit_id;
-  pFrame->tx_type = this->config_.fan_my_device_type;
-  pFrame->tx_id = this->config_.fan_my_device_id;
-  pFrame->command = FAN_NETWORK_JOIN_REQUEST;
-  pFrame->parameter_count = 4;
-  pFrame->payload.parameters[0] = 0x9B;
-  pFrame->payload.parameters[1] = 0xFD;
-  pFrame->payload.parameters[2] = 0x75;
-  pFrame->payload.parameters[3] = 0xFE;
-
-  ESP_LOGE(TAG, "Step 3: Sending JOIN_REQUEST to MAIN_UNIT(0x01/0x%02X) x4", this->config_.fan_main_unit_id);
-  for (int tx = 0; tx < 4; tx++) {
-    pFrame->ttl = ttl_values[tx];
-    this->startTransmit(this->_txFrame, -1, NULL);
-    for (int i = 0; i < 100; i++) {
-      this->rf_->loop();
-      this->rfHandler();
-      if (this->rfState_ == RfStateIdle) break;
-      delay(10);
-    }
-    delay(50);
-  }
-
-  // Re-enable promiscuous mode and wait 2s for FRAME_0B
-  this->rf_->setPromiscuousMode(true);
-  ESP_LOGE(TAG, "Waiting 2s for FRAME_0B confirmation...");
-  for (int i = 0; i < 200; i++) {
-    this->rf_->loop();
-    delay(10);
-  }
-
-  // Save config unconditionally — pairing sequence sent, fan should have registered us
-  this->config_.fan_networkId = 0xFE75FD9B;
-  this->config_.fan_main_unit_type = FAN_TYPE_MAIN_UNIT;
-  this->config_.fan_main_unit_id = 0x39;
-  this->pref_.save(&this->config_);
-  this->config_loaded_ = true;
-  this->state_ = StateIdle;
-
-  ESP_LOGE(TAG, "PAIRING COMPLETE - config saved, going to Idle");
-  ESP_LOGE(TAG, "========================================");
+  this->state_ = StateDiscoveryWaitForLinkRequest;
 }
 
 void ZehnderRF::dump_config(void) {
@@ -584,7 +512,7 @@ void ZehnderRF::loop(void) {
 
         RfFrame *const pJoinReq = (RfFrame *) this->_txFrame;
         (void) memset(this->_txFrame, 0, FAN_FRAMESIZE);
-        pJoinReq->rx_type = FAN_TYPE_MAIN_CONTROL;  // 0x0E - pairing managed by MAIN_CONTROL
+        pJoinReq->rx_type = FAN_TYPE_MAIN_UNIT;  // 0x01 - confirmed working in bcb459a
         pJoinReq->rx_id = this->config_.fan_main_unit_id;
         pJoinReq->tx_type = this->config_.fan_my_device_type;
         pJoinReq->tx_id = this->config_.fan_my_device_id;
@@ -871,7 +799,7 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
                    this->config_.fan_my_device_type, this->config_.fan_my_device_id, this->config_.fan_main_unit_id);
           if ((pResponse->rx_type == this->config_.fan_my_device_type) &&
               (pResponse->rx_id == this->config_.fan_my_device_id) &&
-              (pResponse->tx_type == FAN_TYPE_MAIN_CONTROL) &&  // 0x0E - FRAME_0B from MAIN_CONTROL
+              (pResponse->tx_type == FAN_TYPE_MAIN_UNIT || pResponse->tx_type == FAN_TYPE_MAIN_CONTROL) &&  // 0x01 or 0x0E
               (pResponse->tx_id == this->config_.fan_main_unit_id)) {
             ESP_LOGE(TAG, "FRAME_0B filter PASSED - pairing confirmed by MAIN_CONTROL!");
 
