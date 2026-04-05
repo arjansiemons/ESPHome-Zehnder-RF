@@ -207,12 +207,12 @@ void ZehnderRF::setup() {
 
   this->speed_count_ = 4;  // 4 speeds (HA 1-4 → presets 1-4, OFF → preset 0)
 
-  // If no valid config was loaded, use our known-good defaults
+  // If no valid config was loaded, generate fresh defaults with a random device ID
   if (!this->config_loaded_) {
-    ESP_LOGE(TAG, ">>> No valid config found - using default configuration");
+    ESP_LOGE(TAG, ">>> No valid config found - generating fresh config with random device ID");
     this->config_.fan_networkId = 0xFE75FD9B;
     this->config_.fan_my_device_type = FAN_TYPE_RF_REMOTE;  // 0x0F (like bathroom remote)
-    this->config_.fan_my_device_id = 0xE7;  // Random ID
+    this->config_.fan_my_device_id = this->createDeviceID();  // Random ID each time (not 0x00/0xFF)
     this->config_.fan_main_unit_type = FAN_TYPE_MAIN_UNIT;  // 0x01 - Commands go to MAIN_UNIT!
     this->config_.fan_main_unit_id = 0x39;  // Main unit ID
   }
@@ -324,7 +324,10 @@ void ZehnderRF::manual_init() {
   // Configure device identity as RF_REMOTE (type 0x0F) - same as bathroom remote
   this->config_.fan_networkId = 0xFE75FD9B;
   this->config_.fan_my_device_type = FAN_TYPE_RF_REMOTE;  // 0x0F (like bathroom remote)
-  this->config_.fan_my_device_id = 0xE7;  // Random ID (avoid 0x39 and 0xD7)
+  // Only generate a new random ID if none is set yet (don't overwrite a saved paired ID)
+  if (this->config_.fan_my_device_id == 0x00 || this->config_.fan_my_device_id == 0xFF) {
+    this->config_.fan_my_device_id = this->createDeviceID();
+  }
   this->config_.fan_main_unit_type = FAN_TYPE_MAIN_UNIT;  // 0x01 - Commands go to MAIN_UNIT!
   this->config_.fan_main_unit_id = 0x39;  // Main unit ID
 
@@ -735,15 +738,20 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
           ESP_LOGE(TAG, "Sending JOIN_ACK(NETWORK_ID=0x%08X) - confirming we know the network",
                    this->config_.fan_networkId);
 
-          // Send JOIN_ACK(NETWORK_ID), then chain to JOIN_REQUEST via callback
-          // Use 0 retries: TX fires once, waits ~1s for response, then callback fires
+          // Send JOIN_ACK(NETWORK_ID), then chain to JOIN_REQUEST via callback.
+          // Use 0 retries: TX fires once, waits ~1s for response, then callback fires.
           this->startTransmit(this->_txFrame, 0, [this]() {
+            // After sending JOIN_OPEN, the fan switches its rx_address to LINK_ID.
+            // JOIN_REQUEST must be sent with TX_ADDRESS=LINK_ID so the fan receives it.
+            // (JOIN_ACK was sent on NETWORK_ID before JOIN_OPEN, fan's rx_address was NETWORK_ID then)
+            this->rf_->writeTxAddress(NETWORK_LINK_ID);
+            ESP_LOGE(TAG, "TX address switched to LINK_ID for JOIN_REQUEST (fan listens on LINK_ID after JOIN_OPEN)");
+
             // Now build and send JOIN_REQUEST
             RfFrame *const pJoinReq = (RfFrame *) this->_txFrame;
             (void) memset(this->_txFrame, 0, FAN_FRAMESIZE);
             // JOIN_REQUEST must be addressed to MAIN_CONTROL (0x0E), NOT MAIN_UNIT (0x01).
             // Captured protocol (2026-01-10): RX=0x0E MAIN_CONTROL ID=0x39 for JOIN_REQUEST.
-            // Fan ignores JOIN_REQUEST addressed to 0x01 and never sends FRAME_0B.
             pJoinReq->rx_type = FAN_TYPE_MAIN_CONTROL;  // 0x0E - pairing managed by MAIN_CONTROL
             pJoinReq->rx_id = this->config_.fan_main_unit_id;  // 0x39 (same physical device)
             pJoinReq->tx_type = this->config_.fan_my_device_type;
@@ -756,11 +764,13 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
             this->pref_.save(&this->config_);
             this->config_loaded_ = true;
 
-            ESP_LOGE(TAG, "Sending JOIN_REQUEST to MAIN_CONTROL(0x0E) id=0x%02X network=0x%08X",
+            ESP_LOGE(TAG, "Sending JOIN_REQUEST to MAIN_CONTROL(0x0E) id=0x%02X network=0x%08X tx_addr=LINK_ID",
                      this->config_.fan_main_unit_id, this->config_.fan_networkId);
 
             this->startTransmit(this->_txFrame, FAN_TX_RETRIES, [this]() {
               ESP_LOGW(TAG, "JOIN_REQUEST timeout - no FRAME_0B received, going Idle");
+              // Restore TX address to NETWORK_ID for normal fan control
+              this->rf_->writeTxAddress(this->config_.fan_networkId);
               // Switch rx_address back to NETWORK_ID for normal operation
               nrf905::Config rfCfg = this->rf_->getConfig();
               rfCfg.rx_address = this->config_.fan_networkId;
@@ -794,6 +804,10 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
               (pResponse->tx_type == FAN_TYPE_MAIN_CONTROL) &&  // 0x0E - FRAME_0B from MAIN_CONTROL
               (pResponse->tx_id == this->config_.fan_main_unit_id)) {
             ESP_LOGE(TAG, "FRAME_0B filter PASSED - pairing confirmed by MAIN_CONTROL!");
+
+            // Restore TX address to NETWORK_ID — pairing phase done, normal ops from here
+            this->rf_->writeTxAddress(this->config_.fan_networkId);
+            ESP_LOGE(TAG, "TX address restored to NETWORK_ID=0x%08X", this->config_.fan_networkId);
 
             this->rfComplete();
 
