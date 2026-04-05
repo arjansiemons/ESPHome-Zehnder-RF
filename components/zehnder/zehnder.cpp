@@ -506,8 +506,43 @@ void ZehnderRF::loop(void) {
       break;
 
     case StateDiscoverySendJoinRequest:
-      // Intermediate state: JOIN_ACK(NETWORK_ID) is being sent.
-      // The TX callback will send JOIN_REQUEST and advance to WaitForJoinResponse.
+      // JOIN_ACK(NETWORK_ID) TX is in progress (or just completed).
+      // As soon as rfState==Idle (TX done), immediately send JOIN_REQUEST.
+      // No delay — fan has a short window after receiving JOIN_ACK(NETWORK_ID).
+      if (this->rfState_ == RfStateIdle) {
+        // Switch rx+TX to NETWORK_ID: MAIN_CONTROL listens on NETWORK_ID for JOIN_REQUEST.
+        // FRAME_0B response also comes on NETWORK_ID (confirmed from bathroom remote pairing logs).
+        {
+          nrf905::Config rfCfg = this->rf_->getConfig();
+          rfCfg.rx_address = this->config_.fan_networkId;
+          this->rf_->updateConfig(&rfCfg, NULL);
+          this->rf_->writeTxAddress(this->config_.fan_networkId);  // LINK_ID → NETWORK_ID
+          ESP_LOGE(TAG, "rx+TX switched to NETWORK_ID - sending JOIN_REQUEST immediately");
+        }
+
+        RfFrame *const pJoinReq = (RfFrame *) this->_txFrame;
+        (void) memset(this->_txFrame, 0, FAN_FRAMESIZE);
+        pJoinReq->rx_type = FAN_TYPE_MAIN_CONTROL;  // 0x0E - pairing managed by MAIN_CONTROL
+        pJoinReq->rx_id = this->config_.fan_main_unit_id;
+        pJoinReq->tx_type = this->config_.fan_my_device_type;
+        pJoinReq->tx_id = this->config_.fan_my_device_id;
+        pJoinReq->ttl = FAN_TTL;
+        pJoinReq->command = FAN_NETWORK_JOIN_REQUEST;
+        pJoinReq->parameter_count = sizeof(RfPayloadNetworkJoinRequest);
+        pJoinReq->payload.networkJoinRequest.networkId = this->config_.fan_networkId;
+
+        this->pref_.save(&this->config_);
+        this->config_loaded_ = true;
+
+        ESP_LOGE(TAG, "Sending JOIN_REQUEST to MAIN_CONTROL(0x0E) id=0x%02X network=0x%08X",
+                 this->config_.fan_main_unit_id, this->config_.fan_networkId);
+
+        this->startTransmit(this->_txFrame, FAN_TX_RETRIES, [this]() {
+          ESP_LOGW(TAG, "JOIN_REQUEST timeout - no FRAME_0B received, going Idle");
+          this->state_ = StateIdle;
+        });
+        this->state_ = StateDiscoveryWaitForJoinResponse;
+      }
       break;
 
     case StateStartDiscovery:
@@ -741,51 +776,13 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
                    this->config_.fan_networkId);
 
           // Send JOIN_ACK(NETWORK_ID) on LINK_ID channel (TX_ADDRESS=LINK_ID set above).
-          // Fan receives this and advances its pairing state.
-          // 0 retries: TX fires once, waits ~1s, then callback fires to send JOIN_REQUEST.
-          this->startTransmit(this->_txFrame, 0, [this]() {
-            // Fan received JOIN_ACK(NETWORK_ID) on LINK_ID channel and advances its state.
-            // Now switch BOTH rx and TX to NETWORK_ID for JOIN_REQUEST + FRAME_0B.
-            // Fan's MAIN_CONTROL listens on NETWORK_ID for JOIN_REQUEST.
-            // FRAME_0B response also comes on NETWORK_ID (confirmed from bathroom remote logs).
-            {
-              nrf905::Config rfCfg = this->rf_->getConfig();
-              rfCfg.rx_address = this->config_.fan_networkId;
-              this->rf_->updateConfig(&rfCfg, NULL);
-              this->rf_->writeTxAddress(this->config_.fan_networkId);  // Switch TX: LINK_ID → NETWORK_ID
-              ESP_LOGE(TAG, "rx+TX switched to NETWORK_ID for JOIN_REQUEST+FRAME_0B");
-            }
+          // Fire-and-forget (retries=-1): TX complete → rfState=Idle immediately.
+          // JOIN_REQUEST is sent directly from loop() in StateDiscoverySendJoinRequest
+          // as soon as rfState==Idle. This avoids the 1000ms wait that caused the fan
+          // to time out waiting for JOIN_REQUEST after receiving JOIN_ACK(NETWORK_ID).
+          this->startTransmit(this->_txFrame, -1, NULL);
 
-            // Now build and send JOIN_REQUEST
-            RfFrame *const pJoinReq = (RfFrame *) this->_txFrame;
-            (void) memset(this->_txFrame, 0, FAN_FRAMESIZE);
-            // JOIN_REQUEST must be addressed to MAIN_CONTROL (0x0E), NOT MAIN_UNIT (0x01).
-            // Captured protocol (2026-01-10): RX=0x0E MAIN_CONTROL ID=0x39 for JOIN_REQUEST.
-            pJoinReq->rx_type = FAN_TYPE_MAIN_CONTROL;  // 0x0E - pairing managed by MAIN_CONTROL
-            pJoinReq->rx_id = this->config_.fan_main_unit_id;  // 0x39 (same physical device)
-            pJoinReq->tx_type = this->config_.fan_my_device_type;
-            pJoinReq->tx_id = this->config_.fan_my_device_id;
-            pJoinReq->ttl = FAN_TTL;
-            pJoinReq->command = FAN_NETWORK_JOIN_REQUEST;
-            pJoinReq->parameter_count = sizeof(RfPayloadNetworkJoinRequest);
-            pJoinReq->payload.networkJoinRequest.networkId = this->config_.fan_networkId;
-
-            this->pref_.save(&this->config_);
-            this->config_loaded_ = true;
-
-            ESP_LOGE(TAG, "Sending JOIN_REQUEST to MAIN_CONTROL(0x0E) id=0x%02X network=0x%08X (TX=NETWORK_ID)",
-                     this->config_.fan_main_unit_id, this->config_.fan_networkId);
-
-            this->startTransmit(this->_txFrame, FAN_TX_RETRIES, [this]() {
-              ESP_LOGW(TAG, "JOIN_REQUEST timeout - no FRAME_0B received, going Idle");
-              // rx_address is already NETWORK_ID (set above), nothing to change
-              this->state_ = StateIdle;
-            });
-
-            this->state_ = StateDiscoveryWaitForJoinResponse;
-          });
-
-          // Intermediate state: ignore further JOIN_OPENs while JOIN_ACK(NETWORK_ID) is in flight
+          // Move to intermediate state. loop() will fire JOIN_REQUEST when TX is done.
           this->state_ = StateDiscoverySendJoinRequest;
           break;
 
