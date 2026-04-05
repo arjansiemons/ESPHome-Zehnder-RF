@@ -709,13 +709,10 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
 
           this->rfComplete();  // Cancel current JOIN_ACK(LINK_ID) transmission
 
-          // Switch rx_address back to NETWORK_ID so we can receive FRAME_0B
-          // (fan sends FRAME_0B with TX_ADDRESS = NETWORK_ID)
-          {
-            nrf905::Config rfCfg = this->rf_->getConfig();
-            rfCfg.rx_address = pResponse->payload.networkJoinOpen.networkId;
-            this->rf_->updateConfig(&rfCfg, NULL);
-          }
+          // Keep rx_address = LINK_ID - do NOT switch back to NETWORK_ID yet.
+          // The fan is still in pairing mode and sends FRAME_0B with TX_ADDRESS = LINK_ID.
+          // We need rx_address = LINK_ID to receive FRAME_0B.
+          // Only switch to NETWORK_ID after pairing is fully complete (in JoinComplete state).
 
           // Save discovered fan info into config now (needed by callback lambdas below)
           this->config_.fan_networkId = pResponse->payload.networkJoinOpen.networkId;
@@ -761,6 +758,10 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
 
             this->startTransmit(this->_txFrame, FAN_TX_RETRIES, [this]() {
               ESP_LOGW(TAG, "JOIN_REQUEST timeout - no FRAME_0B received, going Idle");
+              // Switch rx_address back to NETWORK_ID for normal operation
+              nrf905::Config rfCfg = this->rf_->getConfig();
+              rfCfg.rx_address = this->config_.fan_networkId;
+              this->rf_->updateConfig(&rfCfg, NULL);
               this->state_ = StateIdle;
             });
 
@@ -837,10 +838,17 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
 
             this->rfComplete();
 
-            ESP_LOGE(TAG, "PAIRING COMPLETE");
+            ESP_LOGE(TAG, "PAIRING COMPLETE - switching to NETWORK channel");
             this->config_.fan_main_unit_type = FAN_TYPE_MAIN_UNIT;
             this->pref_.save(&this->config_);
             this->config_loaded_ = true;
+
+            // Now switch rx_address to NETWORK_ID for normal operation
+            {
+              nrf905::Config rfCfg = this->rf_->getConfig();
+              rfCfg.rx_address = this->config_.fan_networkId;
+              this->rf_->updateConfig(&rfCfg, NULL);
+            }
 
             this->state_ = StateIdle;
           } else {
