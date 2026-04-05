@@ -567,11 +567,7 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
   RfFrame *const pTxFrame = (RfFrame *) this->_txFrame;  // frame helper
   nrf905::Config rfConfig;
 
-  // === ENHANCED DEBUG LOGGING ===
-  ESP_LOGI(TAG, "========================================");
-  ESP_LOGI(TAG, "RF Frame Received (state: 0x%02X)", this->state_);
-
-  // Device type names
+  // === FRAME LOGGING (DEBUG level only - zero overhead at INFO) ===
   const char* rx_type_name = "UNKNOWN";
   switch(pResponse->rx_type) {
     case FAN_TYPE_BROADCAST: rx_type_name = "BROADCAST"; break;
@@ -590,13 +586,6 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
     case FAN_TYPE_RF_REMOTE: tx_type_name = "RF_REMOTE"; break;
     case FAN_TYPE_CO2_SENSOR: tx_type_name = "CO2_SENSOR"; break;
   }
-
-  ESP_LOGI(TAG, "  RX: 0x%02X (%s) ID=0x%02X", pResponse->rx_type, rx_type_name, pResponse->rx_id);
-  ESP_LOGI(TAG, "  TX: 0x%02X (%s) ID=0x%02X", pResponse->tx_type, tx_type_name, pResponse->tx_id);
-  ESP_LOGI(TAG, "  TTL: 0x%02X | Command: 0x%02X | Param Count: %d",
-           pResponse->ttl, pResponse->command, pResponse->parameter_count);
-
-  // Log command name
   const char* cmd_name = "UNKNOWN";
   switch(pResponse->command) {
     case FAN_FRAME_SETVOLTAGE: cmd_name = "SETVOLTAGE"; break;
@@ -614,20 +603,12 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
     case FAN_FRAME_STATUS_BROADCAST: cmd_name = "STATUS_BROADCAST"; break;
     case FAN_FRAME_SETVOLTAGE_REPLY: cmd_name = "SETVOLTAGE_REPLY"; break;
   }
-  ESP_LOGI(TAG, "  Command Name: %s", cmd_name);
-
-  // Log parameters as hex
-  if(pResponse->parameter_count > 0) {
-    ESP_LOGI(TAG, "  Parameters [%d]: %02X %02X %02X %02X %02X %02X %02X %02X %02X",
-             pResponse->parameter_count,
-             pResponse->payload.parameters[0], pResponse->payload.parameters[1],
-             pResponse->payload.parameters[2], pResponse->payload.parameters[3],
-             pResponse->payload.parameters[4], pResponse->payload.parameters[5],
-             pResponse->payload.parameters[6], pResponse->payload.parameters[7],
-             pResponse->payload.parameters[8]);
-  }
-  ESP_LOGI(TAG, "========================================");
-  // === END ENHANCED DEBUG LOGGING ===
+  ESP_LOGD(TAG, "RX frame: state=0x%02X cmd=%s RX=0x%02X(%s)/0x%02X TX=0x%02X(%s)/0x%02X params=%d",
+           this->state_, cmd_name,
+           pResponse->rx_type, rx_type_name, pResponse->rx_id,
+           pResponse->tx_type, tx_type_name, pResponse->tx_id,
+           pResponse->parameter_count);
+  // === END FRAME LOGGING ===
 
   // === GLOBAL FRAME HANDLERS (process regardless of state) ===
   // Handle STATUS_BROADCAST (0x15) - broadcasted by MAIN_CONTROL after every status change
