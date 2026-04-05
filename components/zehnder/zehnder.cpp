@@ -714,17 +714,10 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
           this->config_.fan_main_unit_type = FAN_TYPE_MAIN_UNIT;  // 0x01 - SETSPEED target
           this->config_.fan_main_unit_id = pResponse->tx_id;
 
-          // Switch rx_address back to NETWORK_ID immediately.
-          // FRAME_0B is sent by the fan with TX_ADDRESS = NETWORK_ID (normal channel, not LINK_ID).
-          // In cebbe06 (last working code), rx_address was NETWORK_ID the entire time, including
-          // when waiting for FRAME_0B. We only needed LINK_ID to catch JOIN_OPEN itself.
-          {
-            nrf905::Config rfCfg = this->rf_->getConfig();
-            rfCfg.rx_address = this->config_.fan_networkId;
-            this->rf_->updateConfig(&rfCfg, NULL);
-            ESP_LOGE(TAG, "Switched rx_address back to NETWORK_ID=0x%08X for FRAME_0B reception",
-                     this->config_.fan_networkId);
-          }
+          // Keep rx_address = LINK_ID while waiting for FRAME_0B.
+          // FRAME_0B is part of the pairing sequence (same channel as JOIN_OPEN = LINK_ID).
+          // Only switch to NETWORK_ID after FRAME_0B is received (pairing complete).
+          ESP_LOGE(TAG, "Keeping rx_address=LINK_ID to receive FRAME_0B on pairing channel");
 
           // Step 2 (cebbe06 sequence): send JOIN_ACK with NETWORK_ID in payload.
           // The fan needs to see this before it will accept JOIN_REQUEST and send FRAME_0B.
@@ -748,8 +741,11 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
             // Now build and send JOIN_REQUEST
             RfFrame *const pJoinReq = (RfFrame *) this->_txFrame;
             (void) memset(this->_txFrame, 0, FAN_FRAMESIZE);
-            pJoinReq->rx_type = FAN_TYPE_MAIN_UNIT;  // 0x01
-            pJoinReq->rx_id = this->config_.fan_main_unit_id;
+            // JOIN_REQUEST must be addressed to MAIN_CONTROL (0x0E), NOT MAIN_UNIT (0x01).
+            // Captured protocol (2026-01-10): RX=0x0E MAIN_CONTROL ID=0x39 for JOIN_REQUEST.
+            // Fan ignores JOIN_REQUEST addressed to 0x01 and never sends FRAME_0B.
+            pJoinReq->rx_type = FAN_TYPE_MAIN_CONTROL;  // 0x0E - pairing managed by MAIN_CONTROL
+            pJoinReq->rx_id = this->config_.fan_main_unit_id;  // 0x39 (same physical device)
             pJoinReq->tx_type = this->config_.fan_my_device_type;
             pJoinReq->tx_id = this->config_.fan_my_device_id;
             pJoinReq->ttl = FAN_TTL;
@@ -760,7 +756,7 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
             this->pref_.save(&this->config_);
             this->config_loaded_ = true;
 
-            ESP_LOGE(TAG, "Sending JOIN_REQUEST to MAIN_UNIT id=0x%02X network=0x%08X",
+            ESP_LOGE(TAG, "Sending JOIN_REQUEST to MAIN_CONTROL(0x0E) id=0x%02X network=0x%08X",
                      this->config_.fan_main_unit_id, this->config_.fan_networkId);
 
             this->startTransmit(this->_txFrame, FAN_TX_RETRIES, [this]() {
@@ -790,12 +786,14 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
       ESP_LOGD(TAG, "DiscoverStateWaitForJoinResponse");
       switch (pResponse->command) {
         case FAN_FRAME_0B:
+          ESP_LOGE(TAG, "FRAME_0B received! rx=0x%02X/0x%02X tx=0x%02X/0x%02X (expected rx=0x%02X/0x%02X tx=0x0E/0x%02X)",
+                   pResponse->rx_type, pResponse->rx_id, pResponse->tx_type, pResponse->tx_id,
+                   this->config_.fan_my_device_type, this->config_.fan_my_device_id, this->config_.fan_main_unit_id);
           if ((pResponse->rx_type == this->config_.fan_my_device_type) &&
               (pResponse->rx_id == this->config_.fan_my_device_id) &&
-              (pResponse->tx_type == this->config_.fan_main_unit_type) &&
+              (pResponse->tx_type == FAN_TYPE_MAIN_CONTROL) &&  // 0x0E - FRAME_0B from MAIN_CONTROL
               (pResponse->tx_id == this->config_.fan_main_unit_id)) {
-            ESP_LOGD(TAG, "Discovery: Link successful to unit with ID 0x%02X on network 0x%08X", pResponse->tx_id,
-                     this->config_.fan_networkId);
+            ESP_LOGE(TAG, "FRAME_0B filter PASSED - pairing confirmed by MAIN_CONTROL!");
 
             this->rfComplete();
 
