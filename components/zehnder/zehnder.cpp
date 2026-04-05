@@ -741,11 +741,16 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
           // Send JOIN_ACK(NETWORK_ID), then chain to JOIN_REQUEST via callback.
           // Use 0 retries: TX fires once, waits ~1s for response, then callback fires.
           this->startTransmit(this->_txFrame, 0, [this]() {
-            // After sending JOIN_OPEN, the fan switches its rx_address to LINK_ID.
-            // JOIN_REQUEST must be sent with TX_ADDRESS=LINK_ID so the fan receives it.
-            // (JOIN_ACK was sent on NETWORK_ID before JOIN_OPEN, fan's rx_address was NETWORK_ID then)
-            this->rf_->writeTxAddress(NETWORK_LINK_ID);
-            ESP_LOGE(TAG, "TX address switched to LINK_ID for JOIN_REQUEST (fan listens on LINK_ID after JOIN_OPEN)");
+            // Switch rx_address to NETWORK_ID before sending JOIN_REQUEST.
+            // The fan keeps its own rx_address=NETWORK_ID throughout pairing (it uses
+            // TX_ADDRESS=LINK_ID for JOIN_OPEN output, but listens on NETWORK_ID for input).
+            // FRAME_0B response will also come on NETWORK_ID channel.
+            {
+              nrf905::Config rfCfg = this->rf_->getConfig();
+              rfCfg.rx_address = this->config_.fan_networkId;
+              this->rf_->updateConfig(&rfCfg, NULL);
+              ESP_LOGE(TAG, "rx_address switched to NETWORK_ID for JOIN_REQUEST+FRAME_0B");
+            }
 
             // Now build and send JOIN_REQUEST
             RfFrame *const pJoinReq = (RfFrame *) this->_txFrame;
@@ -764,17 +769,12 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
             this->pref_.save(&this->config_);
             this->config_loaded_ = true;
 
-            ESP_LOGE(TAG, "Sending JOIN_REQUEST to MAIN_CONTROL(0x0E) id=0x%02X network=0x%08X tx_addr=LINK_ID",
+            ESP_LOGE(TAG, "Sending JOIN_REQUEST to MAIN_CONTROL(0x0E) id=0x%02X network=0x%08X tx_addr=NETWORK_ID",
                      this->config_.fan_main_unit_id, this->config_.fan_networkId);
 
             this->startTransmit(this->_txFrame, FAN_TX_RETRIES, [this]() {
               ESP_LOGW(TAG, "JOIN_REQUEST timeout - no FRAME_0B received, going Idle");
-              // Restore TX address to NETWORK_ID for normal fan control
-              this->rf_->writeTxAddress(this->config_.fan_networkId);
-              // Switch rx_address back to NETWORK_ID for normal operation
-              nrf905::Config rfCfg = this->rf_->getConfig();
-              rfCfg.rx_address = this->config_.fan_networkId;
-              this->rf_->updateConfig(&rfCfg, NULL);
+              // rx_address is already NETWORK_ID (set above), nothing to change
               this->state_ = StateIdle;
             });
 
