@@ -329,6 +329,12 @@ void ZehnderRF::status_check() {
   if (this->rf_ != nullptr && this->initialized_) {
     this->rf_->setMode(nrf905::Receive);
   }
+
+  // Test whether QUERY_NETWORK (0x0D) gets answered, unlike QUERY_DEVICE
+  // (0x10) - only if idle, so it can't interrupt a real command in flight.
+  if (this->state_ == StateIdle) {
+    this->queryDevice();
+  }
 }
 
 void ZehnderRF::clear_config() {
@@ -876,7 +882,12 @@ uint8_t ZehnderRF::createDeviceID(void) {
 void ZehnderRF::queryDevice(void) {
   RfFrame *const pFrame = (RfFrame *) this->_txFrame;  // frame helper
 
-  ESP_LOGD(TAG, "Query device");
+  // NOTE: using QUERY_NETWORK (0x0D) here, not QUERY_DEVICE (0x10). Our own
+  // RF_PROTOCOL_ANALYSIS.md (from sniffing the real bathroom RF_REMOTE) shows
+  // the real remote's periodic self-query uses 0x0D, addressed to MAIN_UNIT
+  // broadcast - not 0x10, which this MAIN_UNIT never replies to (confirmed
+  // repeatedly). Testing whether 0x0D actually gets answered.
+  ESP_LOGI(TAG, "Query device (0x0D QUERY_NETWORK)");
 
   this->lastFanQuery_ = millis();  // Update time
 
@@ -889,7 +900,7 @@ void ZehnderRF::queryDevice(void) {
   pFrame->tx_type = this->config_.fan_my_device_type;
   pFrame->tx_id = this->config_.fan_my_device_id;
   pFrame->ttl = FAN_TTL;
-  pFrame->command = FAN_TYPE_QUERY_DEVICE;
+  pFrame->command = FAN_TYPE_QUERY_NETWORK;
   pFrame->parameter_count = 0x00;  // No parameters
 
   this->startTransmit(this->_txFrame, FAN_TX_RETRIES, [this]() {
