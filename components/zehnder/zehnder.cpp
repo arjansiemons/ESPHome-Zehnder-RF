@@ -471,9 +471,17 @@ void ZehnderRF::loop(void) {
       if (this->newSetting) {
         this->setSpeed(this->newSpeed, this->newTimer);
       } else if (this->config_loaded_ && (millis() - this->lastFanQuery_) >= RADIO_KEEPALIVE_INTERVAL) {
-        // See RADIO_KEEPALIVE_INTERVAL - not expecting/waiting for a reply,
-        // just keeping the radio's passive receive chain alive.
-        this->radioKeepAlive();
+        // Every strategy that didn't involve actually getting a reply back
+        // (fire-and-forget TX, mode toggle, config-register rewrite) failed
+        // to keep passive RX alive (all confirmed in the field). The one
+        // thing that has reliably preceded working reception all session is
+        // a real reply coming back from a command. QUERY_DEVICE never gets
+        // one from this MAIN_UNIT - re-assert our own current speed instead,
+        // which does. This is a no-op for the fan (same speed as before) but
+        // forces a genuine round trip.
+        uint8_t currentPreset = this->state ? this->speed : 0;
+        this->lastFanQuery_ = millis();
+        this->setSpeed(currentPreset, 0);
       }
       // State is also updated passively via overheard STATUS_BROADCAST/
       // SETSPEED/FAN_SETTINGS frames.
@@ -897,23 +905,6 @@ void ZehnderRF::queryDevice(void) {
   });
 
   this->state_ = StateWaitQueryResponse;
-}
-
-void ZehnderRF::radioKeepAlive(void) {
-  // Neither a fire-and-forget TX nor a plain mode toggle fixed passive
-  // reception (both confirmed in the field). The one thing every actually
-  // successful command cycle does that neither of those did: a full SPI
-  // rewrite of the config registers (via updateConfig(), same as startTx()
-  // does internally). Try repeating exactly that, periodically, with no RF
-  // frame sent.
-  ESP_LOGD(TAG, "Radio keep-alive: rewriting config registers");
-
-  this->lastFanQuery_ = millis();
-
-  nrf905::Config rfConfig = this->rf_->getConfig();
-  this->rf_->updateConfig(&rfConfig);
-
-  this->rf_->setMode(nrf905::Receive);
 }
 
 void ZehnderRF::setSpeed(const uint8_t paramSpeed, const uint8_t paramTimer) {
