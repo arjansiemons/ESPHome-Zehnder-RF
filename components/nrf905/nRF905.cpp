@@ -288,7 +288,6 @@ void nRF905::writeConfigRegisters(uint8_t *const pStatus) {
 #endif
 
   this->spiTransfer((uint8_t *) &buffer, sizeof(ConfigBuffer));
-  delay(NRF905_AFTER_WRITE_DELAY);
 
 #if CHECK_REG_WRITE
   // Check config write by reading config back and compare
@@ -420,7 +419,6 @@ void nRF905::writeTxPayload(const uint8_t *const pData, const uint8_t dataLength
   this->setMode(Idle);
 
   this->spiTransfer((uint8_t *) &buffer, sizeof(Buffer));
-  delay(NRF905_AFTER_WRITE_DELAY);
   if (pStatus != NULL) {
     *pStatus = buffer.command;
   }

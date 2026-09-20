@@ -13,13 +13,6 @@ namespace nrf905 {
 #define MAX_TRANSMIT_TIME 2000      // TODO figure out what timeout we want
 #define CARRIERDETECT_LED_DELAY 20  // On-board LED will light up for 20ms when data is received
 
-// Settle time after writing config registers or a TX payload over SPI, before
-// trusting the chip to act on it (e.g. switching mode or transmitting).
-// Sourced from a working independent nRF905 driver (eelcohn/nRF905-API) that
-// uses the same value for the same reason; our own driver previously had no
-// delay here at all.
-#define NRF905_AFTER_WRITE_DELAY 100
-
 /* nRF905 register sizes */
 #define NRF905_REGISTER_COUNT 10
 #define NRF905_MAX_FRAMESIZE 32
