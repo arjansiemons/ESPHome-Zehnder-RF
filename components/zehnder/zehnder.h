@@ -16,16 +16,6 @@ namespace zehnder {
 #define FAN_TTL 250             // 0xFA, default time-to-live for a frame
 #define FAN_REPLY_TIMEOUT 1000  // Wait 500ms for receiving a reply when doing a network scan
 
-// The radio reliably stops passively receiving anything a while after boot
-// (or after our last completed RX), and reliably starts working again right
-// after WE complete a command that gets an actual reply - not just after any
-// transmission (a reply-less fire-and-forget TX, a mode toggle, and a config
-// register rewrite were all tried and none of them kept it alive). So this
-// interval now drives a real re-assertion of the current speed (a genuine
-// command that gets a real FAN_SETTINGS reply), which does cost real airtime,
-// hence the longer interval than the earlier no-op attempts.
-#define RADIO_KEEPALIVE_INTERVAL 15000
-
 /* Fan device types */
 enum {
   FAN_TYPE_BROADCAST = 0x00,       // Broadcast to all devices

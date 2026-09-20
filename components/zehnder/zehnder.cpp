@@ -470,21 +470,14 @@ void ZehnderRF::loop(void) {
       // (e.g. a previous command was still awaiting a reply/retry).
       if (this->newSetting) {
         this->setSpeed(this->newSpeed, this->newTimer);
-      } else if (this->config_loaded_ && (millis() - this->lastFanQuery_) >= RADIO_KEEPALIVE_INTERVAL) {
-        // Every strategy that didn't involve actually getting a reply back
-        // (fire-and-forget TX, mode toggle, config-register rewrite) failed
-        // to keep passive RX alive (all confirmed in the field). The one
-        // thing that has reliably preceded working reception all session is
-        // a real reply coming back from a command. QUERY_DEVICE never gets
-        // one from this MAIN_UNIT - re-assert our own current speed instead,
-        // which does. This is a no-op for the fan (same speed as before) but
-        // forces a genuine round trip.
-        uint8_t currentPreset = this->state ? this->speed : 0;
-        this->lastFanQuery_ = millis();
-        this->setSpeed(currentPreset, 0);
       }
-      // State is also updated passively via overheard STATUS_BROADCAST/
-      // SETSPEED/FAN_SETTINGS frames.
+      // No background keep-alive here anymore - every strategy tried
+      // (fire-and-forget TX, mode toggle, config-register rewrite, re-
+      // asserting the current speed) either got no reply or, worse, cost
+      // real blocking time (SPI settle delays) for zero benefit, since even
+      // a no-op re-assert never gets a reply from this MAIN_UNIT. State is
+      // updated passively via overheard STATUS_BROADCAST/SETSPEED/
+      // FAN_SETTINGS frames, and real commands still retry on their own.
       break;
 
     case StateWaitSetSpeedConfirm:
