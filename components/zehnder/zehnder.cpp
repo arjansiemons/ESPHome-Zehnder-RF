@@ -71,28 +71,22 @@ void ZehnderRF::control(const fan::FanCall &call) {
     this->speed = *call.get_speed();
   }
 
-  switch (this->state_) {
-    case StateIdle: {
-      // Map HA speed to Zehnder preset (DIRECT 1:1):
-      // OFF → Preset 0 (real OFF, 0 volt)
-      // Speed 1 (25%) → Preset 1 (Low)
-      // Speed 2 (50%) → Preset 2 (Medium)
-      // Speed 3 (75%) → Preset 3 (High)
-      // Speed 4 (100%) → Preset 4 (Max)
-      uint8_t zehnder_preset = this->state ? this->speed : 0;
+  // Map HA speed to Zehnder preset (DIRECT 1:1):
+  // OFF → Preset 0 (real OFF, 0 volt)
+  // Speed 1 (25%) → Preset 1 (Low)
+  // Speed 2 (50%) → Preset 2 (Medium)
+  // Speed 3 (75%) → Preset 3 (High)
+  // Speed 4 (100%) → Preset 4 (Max)
+  uint8_t zehnder_preset = this->state ? this->speed : 0;
 
-      ESP_LOGD(TAG, "Control: HA speed %d (state=%s) -> Zehnder preset %d", this->speed,
-               this->state ? "ON" : "OFF", zehnder_preset);
-      this->setSpeed(zehnder_preset, 0);
+  ESP_LOGD(TAG, "Control: HA speed %d (state=%s) -> Zehnder preset %d", this->speed,
+           this->state ? "ON" : "OFF", zehnder_preset);
 
-      this->lastFanQuery_ = millis();  // Update time
-      break;
-    }
-
-    default:
-      ESP_LOGW(TAG, "Fan control called but not in Idle state (state: 0x%02X)", this->state_);
-      break;
-  }
+  // setSpeed() sends immediately when idle, or queues the request (replacing
+  // any previously queued one) when the state machine is still busy with a
+  // previous command - it is picked up as soon as we're back in StateIdle.
+  this->setSpeed(zehnder_preset, 0);
+  this->lastFanQuery_ = millis();  // Update time
 
   this->publish_state();
 }
@@ -922,12 +916,17 @@ void ZehnderRF::setSpeed(const uint8_t paramSpeed, const uint8_t paramTimer) {
     this->startTransmit(this->_txFrame, FAN_TX_RETRIES, [this]() {
       ESP_LOGW(TAG, "Set speed timeout - no response from fan, returning to Idle");
       this->state_ = StateIdle;
+      if (!this->newSetting) {
+        // We don't know if the command actually applied - re-sync with the fan
+        // now instead of waiting for the next periodic query.
+        this->queryDevice();
+      }
     });
 
     newSetting = false;
     this->state_ = StateWaitSetSpeedResponse;
   } else {
-    ESP_LOGD(TAG, "Invalid state, I'm trying later again");
+    ESP_LOGD(TAG, "Busy (state: 0x%02X) - queuing speed %u, will send once Idle", this->state_, speed);
     newSpeed = speed;
     newTimer = timer;
     newSetting = true;
