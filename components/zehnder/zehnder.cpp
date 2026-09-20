@@ -470,12 +470,13 @@ void ZehnderRF::loop(void) {
       // (e.g. a previous command was still awaiting a reply/retry).
       if (this->newSetting) {
         this->setSpeed(this->newSpeed, this->newTimer);
+      } else if (this->config_loaded_ && (millis() - this->lastFanQuery_) >= RADIO_KEEPALIVE_INTERVAL) {
+        // See RADIO_KEEPALIVE_INTERVAL - not expecting/waiting for a reply,
+        // just keeping the radio's passive receive chain alive.
+        this->radioKeepAlive();
       }
-      // NOTE: no periodic queryDevice() here - FAN_TYPE_QUERY_DEVICE is not
-      // answered by this MAIN_UNIT at all (100% timeout in the field, with
-      // both direct and broadcast addressing), so it only wasted airtime and
-      // could delay real commands. State is kept in sync passively instead,
-      // via overheard STATUS_BROADCAST/SETSPEED/FAN_SETTINGS frames.
+      // State is also updated passively via overheard STATUS_BROADCAST/
+      // SETSPEED/FAN_SETTINGS frames.
       break;
 
     case StateWaitSetSpeedConfirm:
@@ -896,6 +897,29 @@ void ZehnderRF::queryDevice(void) {
   });
 
   this->state_ = StateWaitQueryResponse;
+}
+
+void ZehnderRF::radioKeepAlive(void) {
+  RfFrame *const pFrame = (RfFrame *) this->_txFrame;  // frame helper
+
+  // Fire-and-forget: MAIN_UNIT never replies to this (see queryDevice()), and
+  // that's fine here - the point isn't the reply, it's the act of
+  // transmitting. Doesn't touch state_/rfState_ waiting for anything, so it
+  // can run in the background without interfering with real commands.
+  ESP_LOGD(TAG, "Radio keep-alive TX");
+
+  this->lastFanQuery_ = millis();
+
+  (void) memset(this->_txFrame, 0, FAN_FRAMESIZE);
+  pFrame->rx_type = this->config_.fan_main_unit_type;
+  pFrame->rx_id = 0x00;
+  pFrame->tx_type = this->config_.fan_my_device_type;
+  pFrame->tx_id = this->config_.fan_my_device_id;
+  pFrame->ttl = FAN_TTL;
+  pFrame->command = FAN_TYPE_QUERY_DEVICE;
+  pFrame->parameter_count = 0x00;
+
+  this->startTransmit(this->_txFrame, -1, NULL);
 }
 
 void ZehnderRF::setSpeed(const uint8_t paramSpeed, const uint8_t paramTimer) {

@@ -16,6 +16,14 @@ namespace zehnder {
 #define FAN_TTL 250             // 0xFA, default time-to-live for a frame
 #define FAN_REPLY_TIMEOUT 1000  // Wait 500ms for receiving a reply when doing a network scan
 
+// The radio reliably stops passively receiving anything a while after our
+// last own transmission, and reliably starts working again right after we
+// transmit again (regardless of whether that transmission gets a reply) -
+// observed repeatedly in the field, root cause not fully understood. Send a
+// harmless fire-and-forget frame on this interval purely to keep the radio's
+// receive chain alive for picking up the physical remote's broadcasts.
+#define RADIO_KEEPALIVE_INTERVAL 15000
+
 /* Fan device types */
 enum {
   FAN_TYPE_BROADCAST = 0x00,       // Broadcast to all devices
@@ -98,6 +106,7 @@ class ZehnderRF : public Component, public fan::Fan {
 
  protected:
   void queryDevice(void);
+  void radioKeepAlive(void);
 
   uint8_t createDeviceID(void);
   void discoveryStart(const uint8_t deviceId);
