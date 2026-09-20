@@ -320,7 +320,7 @@ void ZehnderRF::manual_init() {
 }
 
 void ZehnderRF::status_check() {
-  ESP_LOGD(TAG, "Status: initialized=%s state=0x%02X rf_state=0x%02X network=0x%08X my=0x%02X/0x%02X main=0x%02X/0x%02X",
+  ESP_LOGI(TAG, "Status: initialized=%s state=0x%02X rf_state=0x%02X network=0x%08X my=0x%02X/0x%02X main=0x%02X/0x%02X",
            this->initialized_ ? "YES" : "NO", this->state_, this->rfState_, this->config_.fan_networkId,
            this->config_.fan_my_device_type, this->config_.fan_my_device_id, this->config_.fan_main_unit_type,
            this->config_.fan_main_unit_id);
