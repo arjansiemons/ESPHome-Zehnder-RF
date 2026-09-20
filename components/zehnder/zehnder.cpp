@@ -589,7 +589,8 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
     if (pResponse->parameter_count >= 1) {
       uint8_t speed_preset = pResponse->payload.parameters[0];
 
-      ESP_LOGD(TAG, "SETSPEED broadcast from MAIN_CONTROL: preset=%d", speed_preset);
+      ESP_LOGD(TAG, "SETSPEED broadcast from 0x%02X(%s)/0x%02X: preset=%d", pResponse->tx_type, tx_type_name,
+               pResponse->tx_id, speed_preset);
 
       // Map preset to HA state/speed (DIRECT 1:1):
       // Preset 0 = OFF, Preset 1-5 = Speed 1-5
@@ -830,8 +831,10 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
       break;
 
     default:
-      ESP_LOGD(TAG, "Received frame from unknown device in unknown state; type 0x%02X from ID 0x%02X type 0x%02X",
-               pResponse->command, pResponse->tx_id, pResponse->tx_type);
+      // Not an error: e.g. a redundant duplicate reply arriving after we already
+      // moved on (the fan/other devices often repeat frames for reliability).
+      ESP_LOGD(TAG, "Ignoring frame (cmd=0x%02X from 0x%02X/0x%02X) - not expected in current state 0x%02X",
+               pResponse->command, pResponse->tx_type, pResponse->tx_id, this->state_);
       break;
   }
 }
