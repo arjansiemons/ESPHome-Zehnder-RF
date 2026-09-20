@@ -145,8 +145,13 @@ void nRF905::loop() {
         this->onRxComplete(buffer, NRF905_MAX_FRAMESIZE);
       }
 
-      // Clear DR flag by toggling RX mode (Idle -> Receive)
+      // Clear DR flag by toggling RX mode (Idle -> Receive). A settling delay
+      // is needed here - without it this toggle doesn't reliably re-arm the
+      // radio, so later frames (arriving seconds apart, not part of the same
+      // burst) silently stop being detected until something else (like our
+      // own TX cycle) resets the radio.
       this->setMode(Idle);
+      delay(2);
       this->setMode(Receive);
 
       frameProcessed = true;  // Mark as processed to avoid re-reading same frame
@@ -165,8 +170,10 @@ void nRF905::loop() {
         this->onRxComplete(buffer, NRF905_MAX_FRAMESIZE);
       }
 
-      // Clear DR flag by toggling RX mode (Idle -> Receive)
+      // Clear DR flag by toggling RX mode (Idle -> Receive) - see the
+      // promiscuous-mode branch above for why the settling delay matters.
       this->setMode(Idle);
+      delay(2);
       this->setMode(Receive);
 
       frameProcessed = true;  // Mark as processed to avoid re-reading same frame
