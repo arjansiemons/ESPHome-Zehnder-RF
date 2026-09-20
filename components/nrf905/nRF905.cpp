@@ -91,6 +91,7 @@ void nRF905::loop() {
   static uint8_t lastState = 0x00;
   static bool addrMatch;
   static bool frameProcessed = false;
+  static uint32_t frameProcessedAt = 0;
   uint8_t buffer[NRF905_MAX_FRAMESIZE];
 
   // Check DR GPIO pin first (if configured) - faster than SPI readStatus()
@@ -111,6 +112,15 @@ void nRF905::loop() {
   if (lastState != state) {
     ESP_LOGV(TAG, "State change: 0x%02X -> 0x%02X", lastState, state);
     frameProcessed = false;  // Reset on state change
+  }
+
+  // Safety net: never let frameProcessed stay latched forever. On some
+  // (clone) nRF905 modules DR doesn't reliably drop back to low and the
+  // status byte doesn't reliably change either, so neither of the two resets
+  // above ever fires - frames after the first would be ignored permanently.
+  // Bound how long a "processed" frame can suppress reprocessing.
+  if (frameProcessed && (millis() - frameProcessedAt > 50)) {
+    frameProcessed = false;
   }
 
   // Check for TX completion (DR goes HIGH when TX is done)
@@ -155,6 +165,7 @@ void nRF905::loop() {
       // burst) were silently lost.
 
       frameProcessed = true;  // Mark as processed to avoid re-reading same frame
+      frameProcessedAt = millis();
       addrMatch = false;
     }
   } else {
@@ -174,6 +185,7 @@ void nRF905::loop() {
       // Idle->Receive here, reading the payload already clears DR.
 
       frameProcessed = true;  // Mark as processed to avoid re-reading same frame
+      frameProcessedAt = millis();
       addrMatch = false;
     } else if (state == (1 << NRF905_STATUS_DR)) {
       // DR without AM - frame not for us, ignore
