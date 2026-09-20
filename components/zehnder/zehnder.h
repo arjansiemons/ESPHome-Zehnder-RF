@@ -123,7 +123,7 @@ class ZehnderRF : public Component, public fan::Fan {
   int speed_count_{};
 
   nrf905::nRF905 *rf_;
-  uint32_t interval_;
+  uint32_t interval_{0};
 
   uint8_t _txFrame[FAN_FRAMESIZE];
 

@@ -56,55 +56,38 @@ typedef struct __attribute__((packed)) {
   } payload;
 } RfFrame;
 
-ZehnderRF::ZehnderRF(void) {
-  ESP_LOGE("zehnder", "!!! CONSTRUCTOR CALLED !!!");
-}
+ZehnderRF::ZehnderRF(void) {}
 
-void ZehnderRF::set_rf(nrf905::nRF905 *const pRf) {
-  ESP_LOGE(TAG, "!!! set_rf() CALLED !!!");
-  rf_ = pRf;
-}
+void ZehnderRF::set_rf(nrf905::nRF905 *const pRf) { rf_ = pRf; }
 
 fan::FanTraits ZehnderRF::get_traits() { return fan::FanTraits(false, true, false, this->speed_count_); }
 
 void ZehnderRF::control(const fan::FanCall &call) {
-  ESP_LOGI(TAG, "=== FAN CONTROL CALLED ===");
-
   if (call.get_state().has_value()) {
     this->state = *call.get_state();
-    ESP_LOGI(TAG, "Control state: %s", this->state ? "ON" : "OFF");
   }
 
   if (call.get_speed().has_value()) {
     this->speed = *call.get_speed();
-    ESP_LOGI(TAG, "Control speed: %d (0x%02X)", this->speed, this->speed);
   }
 
-  ESP_LOGI(TAG, "Speed count configured: %d", this->speed_count_);
-  ESP_LOGI(TAG, "Final speed to send: %d (state=%s)",
-           this->state ? this->speed : 0, this->state ? "ON" : "OFF");
-
   switch (this->state_) {
-    case StateIdle:
+    case StateIdle: {
       // Map HA speed to Zehnder preset (DIRECT 1:1):
       // OFF → Preset 0 (real OFF, 0 volt)
       // Speed 1 (25%) → Preset 1 (Low)
       // Speed 2 (50%) → Preset 2 (Medium)
       // Speed 3 (75%) → Preset 3 (High)
       // Speed 4 (100%) → Preset 4 (Max)
-      uint8_t zehnder_preset;
-      if (!this->state) {
-        zehnder_preset = 0;  // OFF → Preset 0
-      } else {
-        zehnder_preset = this->speed;  // Direct 1:1: HA speed 1-4 → preset 1-4
-      }
+      uint8_t zehnder_preset = this->state ? this->speed : 0;
 
-      ESP_LOGI(TAG, "Sending to fan: HA speed %d (state=%s) → Zehnder preset %d",
-               this->speed, this->state ? "ON" : "OFF", zehnder_preset);
+      ESP_LOGD(TAG, "Control: HA speed %d (state=%s) -> Zehnder preset %d", this->speed,
+               this->state ? "ON" : "OFF", zehnder_preset);
       this->setSpeed(zehnder_preset, 0);
 
       this->lastFanQuery_ = millis();  // Update time
       break;
+    }
 
     default:
       ESP_LOGW(TAG, "Fan control called but not in Idle state (state: 0x%02X)", this->state_);
@@ -112,15 +95,10 @@ void ZehnderRF::control(const fan::FanCall &call) {
   }
 
   this->publish_state();
-  ESP_LOGI(TAG, "=== FAN CONTROL COMPLETE ===");
 }
 
 void ZehnderRF::setup() {
-  ESP_LOGE(TAG, "========================================");
-  ESP_LOGE(TAG, "!!! ZEHNDER SETUP() CALLED !!!");
-  ESP_LOGE(TAG, "Setup priority: %.1f (nRF905 is at 600.0)", this->get_setup_priority());
-  ESP_LOGE(TAG, "nRF905::setup() already completed (higher priority runs first)");
-  ESP_LOGE(TAG, "========================================");
+  ESP_LOGD(TAG, "Zehnder setup(), priority %.1f (nRF905 is at 600.0, already set up)", this->get_setup_priority());
 
   // Clear config
   memset(&this->config_, 0, sizeof(Config));
@@ -155,12 +133,10 @@ void ZehnderRF::setup() {
     }
   }
 
-  ESP_LOGE(TAG, "Checking nRF905 component...");
   if (this->rf_ == nullptr) {
     ESP_LOGE(TAG, "ERROR: nRF905 component is NULL! Cannot continue setup.");
     return;
   }
-  ESP_LOGE(TAG, "nRF905 component OK");
 
   this->speed_count_ = 4;  // 4 speeds (HA 1-4 → presets 1-4, OFF → preset 0)
 
@@ -178,10 +154,9 @@ void ZehnderRF::setup() {
       }
     }
   });
-  ESP_LOGE(TAG, ">>> TX Callback registered");
 
   // === Configure RF parameters BEFORE device config (exact manual_init order!) ===
-  ESP_LOGE(TAG, ">>> Configuring nRF905 for BOXSTREAM network...");
+  ESP_LOGD(TAG, "Configuring nRF905 for BOXSTREAM network...");
   nrf905::Config rfConfig = this->rf_->getConfig();
   rfConfig.band = true;
   rfConfig.channel = 117;  // 868.2 MHz for BOXSTREAM/BUVA
@@ -200,16 +175,13 @@ void ZehnderRF::setup() {
 
   this->rf_->updateConfig(&rfConfig);
   this->rf_->writeTxAddress(0xFE75FD9B);
-  ESP_LOGE(TAG, ">>> nRF905 fully configured");
 
   // === NOW configure device identity AFTER RF config (manual_init order!) ===
-  ESP_LOGE(TAG, ">>> Configuring device identity...");
-
   this->speed_count_ = 4;  // 4 speeds (HA 1-4 → presets 1-4, OFF → preset 0)
 
   // If no valid config was loaded, generate fresh defaults with a random device ID
   if (!this->config_loaded_) {
-    ESP_LOGE(TAG, ">>> No valid config found - generating fresh config with random device ID");
+    ESP_LOGD(TAG, "No valid config found - generating fresh config with random device ID");
     this->config_.fan_networkId = 0xFE75FD9B;
     this->config_.fan_my_device_type = FAN_TYPE_RF_REMOTE;  // 0x0F (like bathroom remote)
     this->config_.fan_my_device_id = this->createDeviceID();  // Random ID each time (not 0x00/0xFF)
@@ -217,85 +189,63 @@ void ZehnderRF::setup() {
     this->config_.fan_main_unit_id = 0x39;  // Main unit ID
   }
 
-  ESP_LOGE(TAG, ">>> Device: RF_REMOTE (0x0F) ID=0x%02X → Target: MAIN_UNIT (0x01) ID=0x%02X",
+  ESP_LOGD(TAG, "Device: RF_REMOTE (0x0F) ID=0x%02X -> Target: MAIN_UNIT (0x01) ID=0x%02X",
            this->config_.fan_my_device_id, this->config_.fan_main_unit_id);
 
   // === Register RX callback (TX callback registered earlier by nRF905 or stays from previous setup) ===
   this->rf_->setOnRxComplete([this](const uint8_t *const pData, const uint8_t dataLength) {
-    ESP_LOGE(TAG, "!!! RX CALLBACK - FRAME RECEIVED !!!");
     this->rfHandleReceived(pData, dataLength);
   });
-  ESP_LOGE(TAG, ">>> RX Callback registered (TX callback inherited)");
 
   // Enable promiscuous mode (like manual_init)
   this->rf_->setPromiscuousMode(true);
-  ESP_LOGE(TAG, ">>> Promiscuous mode enabled");
 
   // Start in receive mode (like manual_init - no delay, no publish before this)
   this->rf_->setMode(nrf905::Receive);
-  ESP_LOGE(TAG, ">>> nRF905 set to RECEIVE mode");
 
   // Restore fan state from preferences (ESPHome restore_mode support)
   auto restore = this->restore_state_();
   if (restore.has_value()) {
-    ESP_LOGE(TAG, ">>> restore_state_() returned value!");
-    ESP_LOGE(TAG, ">>> Before apply: state=%s, speed=%d", this->state ? "ON" : "OFF", this->speed);
     restore->apply(*this);
-    ESP_LOGE(TAG, ">>> After apply: state=%s, speed=%d", this->state ? "ON" : "OFF", this->speed);
 
     // If state is ON but speed is 0, default to speed 1 (Low)
     if (this->state && this->speed == 0) {
-      ESP_LOGW(TAG, ">>> State ON but speed 0, defaulting to speed 1");
+      ESP_LOGW(TAG, "State ON but speed 0, defaulting to speed 1");
       this->speed = 1;
     }
   } else {
-    ESP_LOGE(TAG, ">>> restore_state_() returned NO value (no saved state)");
     // No saved state, default to OFF
     this->state = false;
     this->speed = 0;
   }
-  ESP_LOGE(TAG, ">>> Final state: %s, speed: %d", this->state ? "ON" : "OFF", this->speed);
+  ESP_LOGD(TAG, "Restored state: %s, speed: %d", this->state ? "ON" : "OFF", this->speed);
   this->publish_state();
 
   // Decide whether to pair or go straight to Idle
   if (this->config_loaded_) {
     // Already paired - go straight to Idle for immediate fan control
     this->state_ = StateIdle;
-    ESP_LOGE(TAG, "========================================");
-    ESP_LOGE(TAG, "ZEHNDER FAN READY - Already paired!");
-    ESP_LOGE(TAG, "Fan control enabled immediately");
-    ESP_LOGE(TAG, "Fan state: %s, Speed: %d", this->state ? "ON" : "OFF", this->speed);
-    ESP_LOGE(TAG, "Current target: Type=0x%02X, ID=0x%02X",
+    ESP_LOGI(TAG, "Zehnder fan ready - already paired (target type=0x%02X id=0x%02X)",
              this->config_.fan_main_unit_type, this->config_.fan_main_unit_id);
-    ESP_LOGE(TAG, "========================================");
   } else {
-    // Not paired yet - start pairing sequence in loop()
+    // Not paired yet - wait for the user to press "Pair as Remote"
     this->state_ = StateStartup;
-    ESP_LOGE(TAG, "========================================");
-    ESP_LOGE(TAG, "ZEHNDER FAN SETUP COMPLETE");
-    ESP_LOGE(TAG, "State set to: StateStartup (0x%02X)", this->state_);
-    ESP_LOGE(TAG, "Will automatically pair with fan after 5 seconds...");
-    ESP_LOGE(TAG, "========================================");
+    ESP_LOGI(TAG, "Zehnder fan setup complete, not paired yet - press 'Pair as Remote' to pair");
   }
 
   this->initialized_ = true;
 }
 
 void ZehnderRF::manual_init() {
-  ESP_LOGE(TAG, "========================================");
-  ESP_LOGE(TAG, "!!! MANUAL_INIT() CALLED VIA BUTTON !!!");
-  ESP_LOGE(TAG, "========================================");
+  ESP_LOGI(TAG, "Manual init requested via button");
 
   if (this->rf_ == nullptr) {
     ESP_LOGE(TAG, "ERROR: nRF905 component is NULL!");
     return;
   }
-  ESP_LOGE(TAG, "nRF905 component OK at %p", this->rf_);
 
   // CRITICAL: Manually call nRF905 setup() - ESPHome never calls it!
-  ESP_LOGE(TAG, "Calling nRF905 setup() manually...");
   this->rf_->setup();
-  ESP_LOGE(TAG, "nRF905 setup() completed");
 
   // Do the initialization
   nrf905::Config rfConfig;
@@ -331,17 +281,14 @@ void ZehnderRF::manual_init() {
   this->config_.fan_main_unit_type = FAN_TYPE_MAIN_UNIT;  // 0x01 - Commands go to MAIN_UNIT!
   this->config_.fan_main_unit_id = 0x39;  // Main unit ID
 
-  ESP_LOGE(TAG, "Device configured as RF_REMOTE (0x0F) with ID 0x%02X", this->config_.fan_my_device_id);
-  ESP_LOGE(TAG, "Target: MAIN_UNIT (0x01) with ID 0x%02X", this->config_.fan_main_unit_id);
+  ESP_LOGD(TAG, "Device configured as RF_REMOTE (0x0F) ID=0x%02X -> Target: MAIN_UNIT (0x01) ID=0x%02X",
+           this->config_.fan_my_device_id, this->config_.fan_main_unit_id);
 
-  this->rf_->setOnRxComplete([this](const uint8_t *const pData, const uint8_t dataLength) {
-    ESP_LOGE(TAG, "!!! RX CALLBACK - FRAME RECEIVED !!!");
-    this->rfHandleReceived(pData, dataLength);
-  });
+  this->rf_->setOnRxComplete(
+      [this](const uint8_t *const pData, const uint8_t dataLength) { this->rfHandleReceived(pData, dataLength); });
 
   // Enable promiscuous mode to receive all broadcasts (STATUS_BROADCAST, etc.)
   this->rf_->setPromiscuousMode(true);
-  ESP_LOGE(TAG, "Promiscuous mode enabled - will receive broadcasts from all devices");
 
   this->rf_->setMode(nrf905::Receive);
 
@@ -353,57 +300,36 @@ void ZehnderRF::manual_init() {
   this->speed = 0;
   this->publish_state();
 
-  ESP_LOGE(TAG, "========================================");
-  ESP_LOGE(TAG, "MANUAL INIT COMPLETE - READY FOR CONTROL!");
-  ESP_LOGE(TAG, "State set to Idle - fan control enabled");
-  ESP_LOGE(TAG, "========================================");
+  ESP_LOGI(TAG, "Manual init complete - ready for control");
 
   this->initialized_ = true;
 }
 
 void ZehnderRF::status_check() {
-  ESP_LOGE(TAG, "========================================");
-  ESP_LOGE(TAG, "STATUS CHECK:");
-  ESP_LOGE(TAG, "  Initialized: %s", this->initialized_ ? "YES" : "NO");
-  ESP_LOGE(TAG, "  State: 0x%02X", this->state_);
-  ESP_LOGE(TAG, "  RF State: 0x%02X", this->rfState_);
-  ESP_LOGE(TAG, "  nRF905 pointer: %p", this->rf_);
-  ESP_LOGE(TAG, "  Config:");
-  ESP_LOGE(TAG, "    Network ID: 0x%08X", this->config_.fan_networkId);
-  ESP_LOGE(TAG, "    My Type: 0x%02X, My ID: 0x%02X", this->config_.fan_my_device_type, this->config_.fan_my_device_id);
-  ESP_LOGE(TAG, "    Main Type: 0x%02X, Main ID: 0x%02X", this->config_.fan_main_unit_type, this->config_.fan_main_unit_id);
-  ESP_LOGE(TAG, "========================================");
+  ESP_LOGD(TAG, "Status: initialized=%s state=0x%02X rf_state=0x%02X network=0x%08X my=0x%02X/0x%02X main=0x%02X/0x%02X",
+           this->initialized_ ? "YES" : "NO", this->state_, this->rfState_, this->config_.fan_networkId,
+           this->config_.fan_my_device_type, this->config_.fan_my_device_id, this->config_.fan_main_unit_type,
+           this->config_.fan_main_unit_id);
 
   // Force back to receive mode
   if (this->rf_ != nullptr && this->initialized_) {
-    ESP_LOGE(TAG, "Forcing nRF905 back to RECEIVE mode...");
     this->rf_->setMode(nrf905::Receive);
-    ESP_LOGE(TAG, "Mode set to RECEIVE");
   }
 }
 
 void ZehnderRF::clear_config() {
-  ESP_LOGE(TAG, "========================================");
-  ESP_LOGE(TAG, "CLEARING SAVED CONFIG");
-  ESP_LOGE(TAG, "========================================");
-
   // Clear in-memory config
   memset(&this->config_, 0, sizeof(Config));
 
   // Clear flash
   this->pref_.save(&this->config_);
 
-  ESP_LOGE(TAG, "Config cleared from flash");
-  ESP_LOGE(TAG, "Please reboot device to trigger automatic pairing");
-  ESP_LOGE(TAG, "========================================");
+  ESP_LOGI(TAG, "Config cleared from flash - reboot the device to trigger re-pairing");
 }
 
 void ZehnderRF::pair_as_remote() {
-  ESP_LOGE(TAG, "========================================");
-  ESP_LOGE(TAG, "PAIRING SEQUENCE START");
-  ESP_LOGE(TAG, "Device Type: 0x%02X (RF_REMOTE)", this->config_.fan_my_device_type);
-  ESP_LOGE(TAG, "Device ID: 0x%02X", this->config_.fan_my_device_id);
-  ESP_LOGE(TAG, "========================================");
+  ESP_LOGI(TAG, "Pairing sequence start: device type=0x%02X (RF_REMOTE) id=0x%02X",
+           this->config_.fan_my_device_type, this->config_.fan_my_device_id);
 
   if (this->rf_ == nullptr) {
     ESP_LOGE(TAG, "ERROR: nRF905 not initialized!");
@@ -435,7 +361,7 @@ void ZehnderRF::pair_as_remote() {
   pFrame->parameter_count = sizeof(RfPayloadNetworkJoinAck);
   pFrame->payload.networkJoinAck.networkId = NETWORK_LINK_ID;
 
-  ESP_LOGE(TAG, "rx=LINK_ID, TX=LINK_ID - sending JOIN_ACK(LINK_ID), waiting for JOIN_OPEN...");
+  ESP_LOGD(TAG, "rx=LINK_ID, TX=LINK_ID - sending JOIN_ACK(LINK_ID), waiting for JOIN_OPEN...");
 
   // Send with retries; timeout = fan not in pairing mode
   this->startTransmit(this->_txFrame, FAN_TX_RETRIES, [this]() {
@@ -451,13 +377,6 @@ void ZehnderRF::pair_as_remote() {
 }
 
 void ZehnderRF::dump_config(void) {
-  ESP_LOGE(TAG, "!!! dump_config() CALLED !!!");
-  ESP_LOGE(TAG, "========================================");
-  ESP_LOGE(TAG, "SETUP STATUS CHECK:");
-  ESP_LOGE(TAG, "  initialized_ flag: %s", this->initialized_ ? "TRUE" : "FALSE");
-  ESP_LOGE(TAG, "  Current state_: 0x%02X", this->state_);
-  ESP_LOGE(TAG, "  nRF905 pointer: %p", this->rf_);
-  ESP_LOGE(TAG, "========================================");
   ESP_LOGCONFIG(TAG, "Zehnder Fan config:");
   ESP_LOGCONFIG(TAG, "  Polling interval   %u", this->interval_);
   ESP_LOGCONFIG(TAG, "  Fan networkId      0x%08X", this->config_.fan_networkId);
@@ -465,16 +384,9 @@ void ZehnderRF::dump_config(void) {
   ESP_LOGCONFIG(TAG, "  Fan my device id   0x%02X", this->config_.fan_my_device_id);
   ESP_LOGCONFIG(TAG, "  Fan main_unit type 0x%02X", this->config_.fan_main_unit_type);
   ESP_LOGCONFIG(TAG, "  Fan main unit id   0x%02X", this->config_.fan_main_unit_id);
-  ESP_LOGE(TAG, "========================================");
 }
 
 void ZehnderRF::loop(void) {
-  // Variables for old state machine code (kept for compatibility)
-  uint8_t deviceId = 0;
-  bool newSetting = false;
-  uint8_t newSpeed = 0;
-  uint8_t newTimer = 0;
-
   // Call nRF905 loop to process RF frames (RX/TX state machine)
   if (this->rf_ != nullptr) {
     this->rf_->loop();
@@ -492,9 +404,9 @@ void ZehnderRF::loop(void) {
         // Auto-pairing caused an infinite TX loop (new random ID each cycle) which
         // confused the fan and prevented JOIN_OPEN from being received cleanly.
         if (this->config_loaded_) {
-          ESP_LOGE(TAG, "Valid config loaded - going to Idle");
+          ESP_LOGD(TAG, "Valid config loaded - going to Idle");
         } else {
-          ESP_LOGE(TAG, "No config - going to Idle. Press 'Pair as Remote' to pair.");
+          ESP_LOGD(TAG, "No config - going to Idle. Press 'Pair as Remote' to pair.");
         }
         this->state_ = StateIdle;
       }
@@ -508,7 +420,7 @@ void ZehnderRF::loop(void) {
         // rx and TX already switched to NETWORK_ID in JOIN_OPEN handler.
         // Fan rx=NETWORK_ID after JOIN_OPEN → our TX=NETWORK_ID reaches it.
         // FRAME_0B will arrive with TX=NETWORK_ID → our rx=NETWORK_ID receives it.
-        ESP_LOGE(TAG, "rx=NETWORK_ID, TX=NETWORK_ID - sending JOIN_REQUEST immediately");
+        ESP_LOGD(TAG, "rx=NETWORK_ID, TX=NETWORK_ID - sending JOIN_REQUEST immediately");
 
         RfFrame *const pJoinReq = (RfFrame *) this->_txFrame;
         (void) memset(this->_txFrame, 0, FAN_FRAMESIZE);
@@ -524,7 +436,7 @@ void ZehnderRF::loop(void) {
         this->pref_.save(&this->config_);
         this->config_loaded_ = true;
 
-        ESP_LOGE(TAG, "Sending JOIN_REQUEST to MAIN_CONTROL(0x0E) id=0x%02X network=0x%08X",
+        ESP_LOGD(TAG, "Sending JOIN_REQUEST to MAIN_CONTROL(0x0E) id=0x%02X network=0x%08X",
                  this->config_.fan_main_unit_id, this->config_.fan_networkId);
 
         this->startTransmit(this->_txFrame, FAN_TX_RETRIES, [this]() {
@@ -536,19 +448,22 @@ void ZehnderRF::loop(void) {
       break;
 
     case StateStartDiscovery:
-      deviceId = this->createDeviceID();
-      this->discoveryStart(deviceId);
-
-      // For now just set TX
+      this->discoveryStart(this->createDeviceID());
       break;
 
     case StateIdle:
-      // Handle pending speed changes
-      if (newSetting == true) {
-        this->setSpeed(newSpeed, newTimer);
+      // Handle pending speed changes that arrived while the state machine was busy
+      // (e.g. a previous command was still awaiting a reply/retry).
+      if (this->newSetting) {
+        this->setSpeed(this->newSpeed, this->newTimer);
+      } else if (this->config_loaded_ && this->interval_ > 0 &&
+                 (millis() - this->lastFanQuery_) >= this->interval_) {
+        // Periodically re-sync with the fan in case a broadcast was missed,
+        // so HA doesn't get stuck showing a stale state indefinitely.
+        this->queryDevice();
       }
-      // State is restored via ESPHome restore_mode and updated when
-      // we receive STATUS_BROADCAST or SETSPEED from physical controls
+      // State is also updated when we receive STATUS_BROADCAST or SETSPEED
+      // from physical controls.
       break;
 
     case StateWaitSetSpeedConfirm:
@@ -619,7 +534,7 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
       uint8_t voltage_percent = pResponse->payload.parameters[1];
       uint8_t timer_on = pResponse->payload.parameters[2];
 
-      ESP_LOGI(TAG, "STATUS_BROADCAST: Voltage=%d%%, Timer=%s",
+      ESP_LOGD(TAG, "STATUS_BROADCAST: Voltage=%d%%, Timer=%s",
                voltage_percent, timer_on ? "ON" : "OFF");
 
       // NOTE: STATUS_BROADCAST only shows current voltage, not target preset
@@ -639,7 +554,7 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
       uint8_t target_preset = pResponse->payload.parameters[0];
       uint8_t current_voltage = pResponse->payload.parameters[1];
 
-      ESP_LOGI(TAG, "FAN_SETTINGS: Target preset=%d, Current voltage=%d%%",
+      ESP_LOGD(TAG, "FAN_SETTINGS: Target preset=%d, Current voltage=%d%%",
                target_preset, current_voltage);
 
       // IMPORTANT: Use TARGET preset, not current voltage!
@@ -667,17 +582,9 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
   }
 
   // Handle SETSPEED broadcasts (0x02) - from MAIN_CONTROL to all devices
-  // These are broadcasted when physical remote or wired panel changes speed
-
-  // DEBUG: Log what we're checking for SETSPEED broadcasts
-  if (pResponse->command == FAN_FRAME_SETSPEED) {
-    ESP_LOGI(TAG, "DEBUG SETSPEED: command=0x%02X (MATCH), rx_type=0x%02X (need 0x%02X), rx_id=0x%02X (need 0x00)",
-             pResponse->command, pResponse->rx_type, FAN_TYPE_MAIN_UNIT, pResponse->rx_id);
-    ESP_LOGI(TAG, "DEBUG SETSPEED: Condition check: rx_type_match=%s, rx_id_match=%s",
-             (pResponse->rx_type == FAN_TYPE_MAIN_UNIT) ? "YES" : "NO",
-             (pResponse->rx_id == 0x00) ? "YES" : "NO");
-  }
-
+  // These are broadcasted when physical remote or wired panel changes speed.
+  // NOTE: this fires for every SETSPEED broadcast on the whole network (promiscuous
+  // mode), so keep this path at ESP_LOGD or quieter - it can be very frequent.
   if (pResponse->command == FAN_FRAME_SETSPEED &&
       pResponse->rx_type == FAN_TYPE_MAIN_UNIT && pResponse->rx_id == 0x00) {
     // SETSPEED broadcast format: RX=MAIN_UNIT/0x00 (broadcast), TX=MAIN_CONTROL
@@ -685,8 +592,7 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
     if (pResponse->parameter_count >= 1) {
       uint8_t speed_preset = pResponse->payload.parameters[0];
 
-      ESP_LOGI(TAG, "!!! SETSPEED BROADCAST HANDLER TRIGGERED !!!");
-      ESP_LOGI(TAG, "SETSPEED broadcast from MAIN_CONTROL: preset=%d", speed_preset);
+      ESP_LOGD(TAG, "SETSPEED broadcast from MAIN_CONTROL: preset=%d", speed_preset);
 
       // Map preset to HA state/speed (DIRECT 1:1):
       // Preset 0 = OFF, Preset 1-4 = Speed 1-4
@@ -701,7 +607,7 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
         this->speed = new_speed;
         this->publish_state();
       } else {
-        ESP_LOGI(TAG, "Fan state already matches SETSPEED broadcast (preset=%d → speed=%d)",
+        ESP_LOGD(TAG, "Fan state already matches SETSPEED broadcast (preset=%d → speed=%d)",
                  speed_preset, new_speed);
       }
     }
@@ -715,7 +621,7 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
       ESP_LOGD(TAG, "DiscoverStateWaitForLinkRequest");
       switch (pResponse->command) {
         case FAN_NETWORK_JOIN_OPEN:  // Received linking request from main unit
-          ESP_LOGE(TAG, "JOIN_OPEN received: type=0x%02X id=0x%02X network=0x%08X",
+          ESP_LOGD(TAG, "JOIN_OPEN received: type=0x%02X id=0x%02X network=0x%08X",
                    pResponse->tx_type, pResponse->tx_id, pResponse->payload.networkJoinOpen.networkId);
 
           this->rfComplete();  // Cancel current JOIN_ACK(LINK_ID) transmission
@@ -735,7 +641,7 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
             this->rf_->updateConfig(&rfCfg, NULL);
             this->rf_->writeTxAddress(this->config_.fan_networkId);
           }
-          ESP_LOGE(TAG, "JOIN_OPEN received - switching rx+TX to NETWORK_ID, sending JOIN_ACK(NETWORK_ID)");
+          ESP_LOGD(TAG, "JOIN_OPEN received - switching rx+TX to NETWORK_ID, sending JOIN_ACK(NETWORK_ID)");
 
           // Step 2 (cebbe06 sequence): send JOIN_ACK with NETWORK_ID in payload.
           // The fan needs to see this before it will accept JOIN_REQUEST and send FRAME_0B.
@@ -750,7 +656,7 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
           pTxFrame->parameter_count = sizeof(RfPayloadNetworkJoinAck);
           pTxFrame->payload.networkJoinAck.networkId = this->config_.fan_networkId;  // NETWORK_ID in payload
 
-          ESP_LOGE(TAG, "Sending JOIN_ACK(NETWORK_ID=0x%08X) - confirming we know the network",
+          ESP_LOGD(TAG, "Sending JOIN_ACK(NETWORK_ID=0x%08X) - confirming we know the network",
                    this->config_.fan_networkId);
 
           // Send JOIN_ACK(NETWORK_ID) on LINK_ID channel (TX_ADDRESS=LINK_ID set above).
@@ -775,18 +681,18 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
       ESP_LOGD(TAG, "DiscoverStateWaitForJoinResponse");
       switch (pResponse->command) {
         case FAN_FRAME_0B:
-          ESP_LOGE(TAG, "FRAME_0B received! rx=0x%02X/0x%02X tx=0x%02X/0x%02X (expected rx=0x%02X/0x%02X tx=0x0E/0x%02X)",
+          ESP_LOGD(TAG, "FRAME_0B received! rx=0x%02X/0x%02X tx=0x%02X/0x%02X (expected rx=0x%02X/0x%02X tx=0x0E/0x%02X)",
                    pResponse->rx_type, pResponse->rx_id, pResponse->tx_type, pResponse->tx_id,
                    this->config_.fan_my_device_type, this->config_.fan_my_device_id, this->config_.fan_main_unit_id);
           if ((pResponse->rx_type == this->config_.fan_my_device_type) &&
               (pResponse->rx_id == this->config_.fan_my_device_id) &&
               (pResponse->tx_type == FAN_TYPE_MAIN_UNIT || pResponse->tx_type == FAN_TYPE_MAIN_CONTROL) &&  // 0x01 or 0x0E
               (pResponse->tx_id == this->config_.fan_main_unit_id)) {
-            ESP_LOGE(TAG, "FRAME_0B filter PASSED - pairing confirmed by MAIN_CONTROL!");
+            ESP_LOGD(TAG, "FRAME_0B filter PASSED - pairing confirmed by MAIN_CONTROL!");
 
             // Restore TX address to NETWORK_ID — pairing phase done, normal ops from here
             this->rf_->writeTxAddress(this->config_.fan_networkId);
-            ESP_LOGE(TAG, "TX address restored to NETWORK_ID=0x%08X", this->config_.fan_networkId);
+            ESP_LOGD(TAG, "TX address restored to NETWORK_ID=0x%08X", this->config_.fan_networkId);
 
             this->rfComplete();
 
@@ -808,17 +714,17 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
 
             this->state_ = StateDiscoveryJoinComplete;
           } else {
-            ESP_LOGE(TAG, "Discovery: FRAME_0B type mismatch!");
-            ESP_LOGE(TAG, "  Got:      rx_type=0x%02X rx_id=0x%02X tx_type=0x%02X tx_id=0x%02X",
-                     pResponse->rx_type, pResponse->rx_id, pResponse->tx_type, pResponse->tx_id);
-            ESP_LOGE(TAG, "  Expected: rx_type=0x%02X rx_id=0x%02X tx_type=0x%02X tx_id=0x%02X",
+            ESP_LOGW(TAG, "Discovery: FRAME_0B type mismatch! Got: rx=0x%02X/0x%02X tx=0x%02X/0x%02X, expected: "
+                          "rx=0x%02X/0x%02X tx=0x%02X/0x%02X",
+                     pResponse->rx_type, pResponse->rx_id, pResponse->tx_type, pResponse->tx_id,
                      this->config_.fan_my_device_type, this->config_.fan_my_device_id,
                      this->config_.fan_main_unit_type, this->config_.fan_main_unit_id);
           }
           break;
 
         default:
-          ESP_LOGE(TAG, "Discovery: Received unknown frame type 0x%02X from ID 0x%02X", pResponse->command,
+          // Promiscuous mode also picks up unrelated network traffic; benign during discovery.
+          ESP_LOGD(TAG, "Discovery: Received unknown frame type 0x%02X from ID 0x%02X", pResponse->command,
                    pResponse->tx_id);
           break;
       }
@@ -836,7 +742,7 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
 
             this->rfComplete();
 
-            ESP_LOGE(TAG, "PAIRING COMPLETE - switching to NETWORK channel");
+            ESP_LOGI(TAG, "Pairing complete - switching to NETWORK channel");
             this->config_.fan_main_unit_type = FAN_TYPE_MAIN_UNIT;
             this->pref_.save(&this->config_);
             this->config_loaded_ = true;
@@ -856,7 +762,7 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
           break;
 
         default:
-          ESP_LOGE(TAG, "Discovery: Received unknown frame type 0x%02X from ID 0x%02X on network 0x%08X",
+          ESP_LOGD(TAG, "Discovery: Received unknown frame type 0x%02X from ID 0x%02X on network 0x%08X",
                    pResponse->command, pResponse->tx_id, this->config_.fan_networkId);
           break;
       }
@@ -892,20 +798,15 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
       break;
 
     case StateWaitSetSpeedResponse:
-      ESP_LOGI(TAG, "StateWaitSetSpeedResponse: Processing frame (command=0x%02X, rx_type=0x%02X, rx_id=0x%02X)",
-               pResponse->command, pResponse->rx_type, pResponse->rx_id);
-      ESP_LOGI(TAG, "  Expecting: rx_type=0x%02X, rx_id=0x%02X",
-               this->config_.fan_my_device_type, this->config_.fan_my_device_id);
-
+      // NOTE: promiscuous mode means every frame on the network passes through here
+      // while we wait for our own reply (up to FAN_TX_RETRIES times) - keep this quiet.
       if ((pResponse->rx_type == this->config_.fan_my_device_type) &&  // If type
           (pResponse->rx_id == this->config_.fan_my_device_id)) {      // and id match, it is for us
-        ESP_LOGI(TAG, "  Frame is addressed to us!");
         switch (pResponse->command) {
           case FAN_TYPE_FAN_SETTINGS:
-            ESP_LOGI(TAG, "StateWaitSetSpeedResponse: Received FAN_SETTINGS confirmation");
-            ESP_LOGD(TAG, "  Speed: 0x%02X, Voltage: %i%%, Timer: %i",
-                     pResponse->payload.fanSettings.speed,
-                     pResponse->payload.fanSettings.voltage,
+            ESP_LOGD(TAG, "StateWaitSetSpeedResponse: Received FAN_SETTINGS confirmation - Speed: 0x%02X, "
+                          "Voltage: %i%%, Timer: %i",
+                     pResponse->payload.fanSettings.speed, pResponse->payload.fanSettings.voltage,
                      pResponse->payload.fanSettings.timer);
 
             // Command successful! Cancel retries and return to Idle
@@ -916,19 +817,16 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
 
           case FAN_FRAME_SETSPEED_REPLY:
           case FAN_FRAME_SETVOLTAGE_REPLY:
-            ESP_LOGI(TAG, "  Received SETSPEED_REPLY or SETVOLTAGE_REPLY (ignoring for now)");
-            // this->rfComplete();
-
-            // this->state_ = StateIdle;
+            ESP_LOGD(TAG, "  Received SETSPEED_REPLY or SETVOLTAGE_REPLY (ignoring for now)");
             break;
 
           default:
-            ESP_LOGI(TAG, "  Received unexpected frame type 0x%02X from ID 0x%02X", pResponse->command,
+            ESP_LOGD(TAG, "  Received unexpected frame type 0x%02X from ID 0x%02X", pResponse->command,
                      pResponse->tx_id);
             break;
         }
       } else {
-        ESP_LOGI(TAG, "  Frame NOT addressed to us (rx_type=0x%02X/0x%02X, rx_id=0x%02X/0x%02X) - ignoring",
+        ESP_LOGD(TAG, "  Frame NOT addressed to us (rx_type=0x%02X/0x%02X, rx_id=0x%02X/0x%02X) - ignoring",
                  pResponse->rx_type, this->config_.fan_my_device_type,
                  pResponse->rx_id, this->config_.fan_my_device_id);
       }
@@ -1022,8 +920,7 @@ void ZehnderRF::setSpeed(const uint8_t paramSpeed, const uint8_t paramTimer) {
     }
 
     this->startTransmit(this->_txFrame, FAN_TX_RETRIES, [this]() {
-      ESP_LOGE(TAG, "!!! SET SPEED TIMEOUT - NO RESPONSE FROM FAN !!!");
-      ESP_LOGE(TAG, "Returning to Idle state after timeout");
+      ESP_LOGW(TAG, "Set speed timeout - no response from fan, returning to Idle");
       this->state_ = StateIdle;
     });
 
@@ -1131,18 +1028,17 @@ void ZehnderRF::rfHandler(void) {
 
     case RfStateRxWait:
       if ((this->retries_ >= 0) && ((millis() - this->msgSendTime_) > FAN_REPLY_TIMEOUT)) {
-        ESP_LOGI(TAG, "RfStateRxWait: Receive timeout (waited %ums)", millis() - this->msgSendTime_);
+        ESP_LOGD(TAG, "RfStateRxWait: Receive timeout (waited %ums)", millis() - this->msgSendTime_);
 
         if (this->retries_ > 0) {
           --this->retries_;
-          ESP_LOGI(TAG, "  No response received, retrying... (retries left: %u)", this->retries_);
+          ESP_LOGD(TAG, "  No response received, retrying... (retries left: %u)", this->retries_);
 
           this->rfState_ = RfStateWaitAirwayFree;
           this->airwayFreeWaitTime_ = millis();
         } else if (this->retries_ == 0) {
           // Oh oh, ran out of options
-          ESP_LOGE(TAG, "  !!! ALL RETRIES EXHAUSTED - CALLING TIMEOUT CALLBACK !!!");
-          ESP_LOGE(TAG, "  No messages received after %d retries, giving up now...", FAN_TX_RETRIES);
+          ESP_LOGW(TAG, "All retries exhausted - no messages received after %d retries, giving up", FAN_TX_RETRIES);
           // Set Idle BEFORE calling callback so callback can call startTransmit()
           this->rfState_ = RfStateIdle;
 
