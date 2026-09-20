@@ -46,13 +46,18 @@ enum {
 };
 
 /* Fan speed presets */
+// The physical remote only exposes the 5 real running speeds (1-5); it has no
+// way to fully stop the fan. Preset 0 genuinely means "off" (0 volt, motor
+// stopped) - it's just not reachable from the remote, only via a direct RF
+// command like the one this component sends.
 enum {
-  FAN_SPEED_AUTO = 0x00,    // Off:      0% or  0.0 volt
-  FAN_SPEED_LOW = 0x01,     // Low:     30% or  3.0 volt
-  FAN_SPEED_MEDIUM = 0x02,  // Medium:  50% or  5.0 volt
-  FAN_SPEED_HIGH = 0x03,    // High:    90% or  9.0 volt
-  FAN_SPEED_MAX = 0x04
-};  // Max:    100% or 10.0 volt
+  FAN_SPEED_OFF = 0x00,     // Off:    0% or  0.0 volt (not reachable from the physical remote)
+  FAN_SPEED_1 = 0x01,       // Speed 1 (lowest of the 5 real running speeds)
+  FAN_SPEED_2 = 0x02,
+  FAN_SPEED_3 = 0x03,
+  FAN_SPEED_4 = 0x04,
+  FAN_SPEED_5 = 0x05        // Speed 5 (highest of the 5 real running speeds)
+};
 
 #define NETWORK_LINK_ID 0xA55A5AA5
 #define NETWORK_DEFAULT_ID 0xE7E7E7E7

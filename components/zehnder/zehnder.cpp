@@ -72,11 +72,8 @@ void ZehnderRF::control(const fan::FanCall &call) {
   }
 
   // Map HA speed to Zehnder preset (DIRECT 1:1):
-  // OFF → Preset 0 (real OFF, 0 volt)
-  // Speed 1 (25%) → Preset 1 (Low)
-  // Speed 2 (50%) → Preset 2 (Medium)
-  // Speed 3 (75%) → Preset 3 (High)
-  // Speed 4 (100%) → Preset 4 (Max)
+  // OFF → Preset 0 (real OFF, 0 volt - not reachable from the physical remote)
+  // Speed 1-5 (20/40/60/80/100%) → Preset 1-5 (the 5 real running speeds)
   uint8_t zehnder_preset = this->state ? this->speed : 0;
 
   ESP_LOGD(TAG, "Control: HA speed %d (state=%s) -> Zehnder preset %d", this->speed,
@@ -132,7 +129,7 @@ void ZehnderRF::setup() {
     return;
   }
 
-  this->speed_count_ = 4;  // 4 speeds (HA 1-4 → presets 1-4, OFF → preset 0)
+  this->speed_count_ = 5;  // 5 real speeds (HA 1-5 → presets 1-5, OFF → preset 0)
 
   // === Register TX callback ===
   // Note: nRF905::setup() runs BEFORE this (priority 600 vs 599)
@@ -180,7 +177,7 @@ void ZehnderRF::setup() {
   this->rf_->writeTxAddress(0xFE75FD9B);
 
   // === NOW configure device identity AFTER RF config (manual_init order!) ===
-  this->speed_count_ = 4;  // 4 speeds (HA 1-4 → presets 1-4, OFF → preset 0)
+  this->speed_count_ = 5;  // 5 real speeds (HA 1-5 → presets 1-5, OFF → preset 0)
 
   // If no valid config was loaded, generate fresh defaults with a random device ID
   if (!this->config_loaded_) {
@@ -272,7 +269,7 @@ void ZehnderRF::manual_init() {
   this->rf_->updateConfig(&rfConfig);
   this->rf_->writeTxAddress(0xFE75FD9B);
 
-  this->speed_count_ = 4;  // 4 speeds (HA 1-4 → presets 1-4, OFF → preset 0)
+  this->speed_count_ = 5;  // 5 real speeds (HA 1-5 → presets 1-5, OFF → preset 0)
 
   // Configure device identity as RF_REMOTE (type 0x0F) - same as bathroom remote
   this->config_.fan_networkId = 0xFE75FD9B;
@@ -563,15 +560,12 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
       // IMPORTANT: Use TARGET preset, not current voltage!
       // The fan may still be ramping up/down, but we want to show the target state
       // Map Zehnder preset to HA speed (DIRECT 1:1):
-      // Preset 0 → OFF
-      // Preset 1 → Speed 1 (25%)
-      // Preset 2 → Speed 2 (50%)
-      // Preset 3 → Speed 3 (75%)
-      // Preset 4 → Speed 4 (100%)
+      // Preset 0 → OFF (not reachable from the physical remote)
+      // Preset 1-5 → Speed 1-5 (the 5 real running speeds)
 
       // Update fan state based on target preset (what the fan is moving towards)
       bool new_state = (target_preset > 0);  // Preset 0 = OFF
-      uint8_t new_speed = target_preset;  // Direct 1:1: preset 1-4 → HA speed 1-4
+      uint8_t new_speed = target_preset;  // Direct 1:1: preset 1-5 → HA speed 1-5
 
       if (this->speed != new_speed || this->state != new_state) {
         ESP_LOGI(TAG, "Updating fan state from FAN_SETTINGS: preset %d → speed %d (ON)",
@@ -591,16 +585,16 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
   if (pResponse->command == FAN_FRAME_SETSPEED &&
       pResponse->rx_type == FAN_TYPE_MAIN_UNIT && pResponse->rx_id == 0x00) {
     // SETSPEED broadcast format: RX=MAIN_UNIT/0x00 (broadcast), TX=MAIN_CONTROL
-    // Parameters: [speed preset] (0x00=AUTO, 0x01=LOW, 0x02=MEDIUM, 0x03=HIGH, 0x04=MAX)
+    // Parameters: [speed preset] 0x00=OFF (not reachable from the remote), 0x01-0x05=the 5 real speeds
     if (pResponse->parameter_count >= 1) {
       uint8_t speed_preset = pResponse->payload.parameters[0];
 
       ESP_LOGD(TAG, "SETSPEED broadcast from MAIN_CONTROL: preset=%d", speed_preset);
 
       // Map preset to HA state/speed (DIRECT 1:1):
-      // Preset 0 = OFF, Preset 1-4 = Speed 1-4
+      // Preset 0 = OFF, Preset 1-5 = Speed 1-5
       bool new_state = (speed_preset > 0);  // Preset 0 = OFF
-      uint8_t new_speed = speed_preset;  // Direct 1:1: preset 1-4 → HA speed 1-4
+      uint8_t new_speed = speed_preset;  // Direct 1:1: preset 1-5 → HA speed 1-5
 
       // Update fan state if changed
       if (this->speed != new_speed || this->state != new_state) {
@@ -874,7 +868,7 @@ void ZehnderRF::queryDevice(void) {
 
   // Build frame
   pFrame->rx_type = this->config_.fan_main_unit_type;
-  pFrame->rx_id = this->config_.fan_main_unit_id;
+  pFrame->rx_id = 0x00;  // broadcast - MAIN_UNIT only responds to broadcast-addressed commands (see setSpeed())
   pFrame->tx_type = this->config_.fan_my_device_type;
   pFrame->tx_id = this->config_.fan_my_device_id;
   pFrame->ttl = FAN_TTL;

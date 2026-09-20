@@ -75,7 +75,7 @@ fan:
           id: ${devicename}_speed_sensor
           state: !lambda |-
             if (x->state) {
-              return x->speed * 25.0;
+              return x->speed * 20.0;
             }
             return 0.0;
 
@@ -92,8 +92,8 @@ sensor:
     lambda: |-
       auto fan_comp = id(${devicename}_fan);
       if (fan_comp->state) {
-        // Fan ON: speed 1-4 → 25/50/75/100%
-        return fan_comp->speed * 25.0;
+        // Fan ON: speed 1-5 → 20/40/60/80/100%
+        return fan_comp->speed * 20.0;
       } else {
         return 0.0;
       }
