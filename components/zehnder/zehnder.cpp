@@ -140,7 +140,16 @@ void ZehnderRF::setup() {
   this->rf_->setOnTxReady([this](void) {
     ESP_LOGD(TAG, "Tx Ready");
     if (this->rfState_ == RfStateTxBusy) {
-      if (this->retries_ >= 0) {
+      if (this->txBurstRemaining_ > 0) {
+        // nRF905's own hardware auto-retransmit is kept disabled (see
+        // nRF905::startTx()), so re-send the same payload ourselves here.
+        // A fresh Idle->Transmit transition is required to trigger another
+        // send - just calling startTx() again while CE is already high does
+        // not re-arm the radio.
+        --this->txBurstRemaining_;
+        this->rf_->setMode(nrf905::Idle);
+        this->rf_->startTx(FAN_TX_FRAMES, nrf905::Receive);
+      } else if (this->retries_ >= 0) {
         this->msgSendTime_ = millis();
         this->rfState_ = RfStateRxWait;
       } else {
@@ -1016,6 +1025,10 @@ void ZehnderRF::rfHandler(void) {
         }
       } else if (this->rf_->airwayBusy() == false) {
         ESP_LOGD(TAG, "Start TX");
+        // Send this attempt FAN_TX_FRAMES times back-to-back (see setOnTxReady)
+        // before waiting for a reply - one lost frame on air shouldn't cost a
+        // full FAN_REPLY_TIMEOUT retry cycle.
+        this->txBurstRemaining_ = FAN_TX_FRAMES - 1;
         this->rf_->startTx(FAN_TX_FRAMES, nrf905::Receive);  // After transmit, wait for response
 
         this->rfState_ = RfStateTxBusy;

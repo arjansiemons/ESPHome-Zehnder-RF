@@ -144,6 +144,7 @@ class ZehnderRF : public Component, public fan::Fan {
   uint32_t msgSendTime_{0};
   uint32_t airwayFreeWaitTime_{0};
   int8_t retries_{-1};
+  uint8_t txBurstRemaining_{0};
 
   uint8_t newSpeed{0};
   uint8_t newTimer{0};
