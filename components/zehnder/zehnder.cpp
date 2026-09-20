@@ -900,19 +900,19 @@ void ZehnderRF::queryDevice(void) {
 }
 
 void ZehnderRF::radioKeepAlive(void) {
-  // A fire-and-forget TX with no reply turned out NOT to fix passive
-  // reception (confirmed in the field) - so it's not "any transmission" that
-  // keeps RX alive, it's something more specific. Instead, just re-run the
-  // same Receive->Idle->Receive re-arm sequence that's known to work right
-  // after boot (see setup()), periodically, without transmitting anything.
-  ESP_LOGD(TAG, "Radio keep-alive: re-arming receive mode");
+  // Neither a fire-and-forget TX nor a plain mode toggle fixed passive
+  // reception (both confirmed in the field). The one thing every actually
+  // successful command cycle does that neither of those did: a full SPI
+  // rewrite of the config registers (via updateConfig(), same as startTx()
+  // does internally). Try repeating exactly that, periodically, with no RF
+  // frame sent.
+  ESP_LOGD(TAG, "Radio keep-alive: rewriting config registers");
 
   this->lastFanQuery_ = millis();
 
-  this->rf_->setMode(nrf905::Receive);
-  delay(5);
-  this->rf_->setMode(nrf905::Idle);
-  delay(5);
+  nrf905::Config rfConfig = this->rf_->getConfig();
+  this->rf_->updateConfig(&rfConfig);
+
   this->rf_->setMode(nrf905::Receive);
 }
 
