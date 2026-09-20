@@ -456,14 +456,12 @@ void ZehnderRF::loop(void) {
       // (e.g. a previous command was still awaiting a reply/retry).
       if (this->newSetting) {
         this->setSpeed(this->newSpeed, this->newTimer);
-      } else if (this->config_loaded_ && this->interval_ > 0 &&
-                 (millis() - this->lastFanQuery_) >= this->interval_) {
-        // Periodically re-sync with the fan in case a broadcast was missed,
-        // so HA doesn't get stuck showing a stale state indefinitely.
-        this->queryDevice();
       }
-      // State is also updated when we receive STATUS_BROADCAST or SETSPEED
-      // from physical controls.
+      // NOTE: no periodic queryDevice() here - FAN_TYPE_QUERY_DEVICE is not
+      // answered by this MAIN_UNIT at all (100% timeout in the field, with
+      // both direct and broadcast addressing), so it only wasted airtime and
+      // could delay real commands. State is kept in sync passively instead,
+      // via overheard STATUS_BROADCAST/SETSPEED/FAN_SETTINGS frames.
       break;
 
     case StateWaitSetSpeedConfirm:
@@ -922,11 +920,8 @@ void ZehnderRF::setSpeed(const uint8_t paramSpeed, const uint8_t paramTimer) {
     this->startTransmit(this->_txFrame, FAN_TX_RETRIES, [this]() {
       ESP_LOGW(TAG, "Set speed timeout - no response from fan, returning to Idle");
       this->state_ = StateIdle;
-      if (!this->newSetting) {
-        // We don't know if the command actually applied - re-sync with the fan
-        // now instead of waiting for the next periodic query.
-        this->queryDevice();
-      }
+      // NOTE: used to also call queryDevice() here to re-sync, but that command
+      // gets 0% replies from this MAIN_UNIT - removed, see loop()'s StateIdle.
     });
 
     newSetting = false;
