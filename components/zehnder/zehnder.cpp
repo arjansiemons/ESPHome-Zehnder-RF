@@ -200,7 +200,15 @@ void ZehnderRF::setup() {
   // Enable promiscuous mode (like manual_init)
   this->rf_->setPromiscuousMode(true);
 
-  // Start in receive mode (like manual_init - no delay, no publish before this)
+  // Start in receive mode (like manual_init). The very first Idle->Receive
+  // transition after config writes doesn't always seem to fully arm the radio
+  // in the field - force an unambiguous Receive->Idle->Receive cycle (with the
+  // chip given real time to settle at each step) as extra insurance, the same
+  // trick used elsewhere to clear a stuck DR condition.
+  this->rf_->setMode(nrf905::Receive);
+  delay(5);
+  this->rf_->setMode(nrf905::Idle);
+  delay(5);
   this->rf_->setMode(nrf905::Receive);
 
   // Restore fan state from preferences (ESPHome restore_mode support)
@@ -290,6 +298,12 @@ void ZehnderRF::manual_init() {
   // Enable promiscuous mode to receive all broadcasts (STATUS_BROADCAST, etc.)
   this->rf_->setPromiscuousMode(true);
 
+  // See setup() - force an unambiguous Receive->Idle->Receive cycle to make
+  // sure the radio is actually armed for RX, not just Idle->Receive once.
+  this->rf_->setMode(nrf905::Receive);
+  delay(5);
+  this->rf_->setMode(nrf905::Idle);
+  delay(5);
   this->rf_->setMode(nrf905::Receive);
 
   // Set state to Idle so fan control works
