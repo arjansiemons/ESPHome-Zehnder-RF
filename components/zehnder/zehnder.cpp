@@ -129,16 +129,11 @@ void ZehnderRF::setup() {
     return;
   }
 
-  // Explicitly (re-)run nRF905's own setup() here, same as manual_init() does.
-  // Documented finding from this project's earlier debugging (STATUS.md):
-  // relying on setup_priority ordering alone to have ESPHome call this isn't
-  // reliable for a component reached only via a pointer/reference like this
-  // one - explicitly calling it is what actually made things work.
-  this->rf_->setup();
-
   this->speed_count_ = 5;  // 5 real speeds (HA 1-5 → presets 1-5, OFF → preset 0)
 
   // === Register TX callback ===
+  // Note: nRF905::setup() runs BEFORE this (priority 600 vs 599)
+  // So hardware is already initialized by ESPHome
   this->rf_->setOnTxReady([this](void) {
     ESP_LOGD(TAG, "Tx Ready");
     if (this->rfState_ == RfStateTxBusy) {
@@ -475,10 +470,11 @@ void ZehnderRF::loop(void) {
       // (e.g. a previous command was still awaiting a reply/retry).
       if (this->newSetting) {
         this->setSpeed(this->newSpeed, this->newTimer);
+      } else if (this->config_loaded_ && (millis() - this->lastFanQuery_) >= RADIO_KEEPALIVE_INTERVAL) {
+        // See RADIO_KEEPALIVE_INTERVAL - not expecting/waiting for a reply,
+        // just keeping the radio's passive receive chain alive.
+        this->radioKeepAlive();
       }
-      // radioKeepAlive() disabled for now - testing the explicit rf_->setup()
-      // fix in setup() on its own first, to get a clean read on whether that
-      // alone fixes passive RX (see STATUS.md history).
       // State is also updated passively via overheard STATUS_BROADCAST/
       // SETSPEED/FAN_SETTINGS frames.
       break;
